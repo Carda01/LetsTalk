@@ -19,7 +19,7 @@ USER airflow
 RUN pip install --upgrade pip
 
 # Install Delta Lake and dependencies
-RUN pip install pyspark==3.5.5 delta-spark==3.3.0 pandas==2.2.3 pyarrow==19.0.1 requests
+RUN pip install pyspark==3.5.5 delta-spark==3.3.0 pandas==2.2.3 pyarrow==19.0.1 requests newsapi-python
 
 # Set environment variables for PySpark
 ENV PYTHONPATH "${PYTHONPATH}:/home/airflow/.local/lib/python3.13/site-packages"

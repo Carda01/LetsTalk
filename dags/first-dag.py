@@ -21,7 +21,7 @@ default_args = {
 }
 
 dag = DAG(
-    'first dag',
+    'first_dag',
     default_args=default_args,
     description='A dag that generates data and load it into Delta Lake',
     schedule_interval=timedelta(days=1),
@@ -29,7 +29,7 @@ dag = DAG(
 )
 
 def create_spark_session():
-    builder = pyspark.sql.SparkSession.builder.appName("MyApp") \
+    builder = pyspark.sql.SparkSession.builder.appName("LetsTalk") \
         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
         .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
 
