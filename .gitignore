@@ -3,3 +3,4 @@ logs/
 data/
 .idea/
 *.json
+__pycache__
