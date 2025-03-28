@@ -39,8 +39,8 @@ def fetch_from_news_api(**kwargs):
 def ingest_news(**kwargs):
     temp_file_paths = kwargs['ti'].xcom_pull(task_ids=f'fetch_from_news_api')
 
-    is_gcs_enabled = Variable.get('is_gcs_enabled')
-    if is_gcs_enabled is "True":
+    is_gcs_enabled = Variable.get('is_gcs_enabled', "False")
+    if is_gcs_enabled == "True":
         spark = create_spark_gcs_session()
         delta_table_base_path = "gs://letstalk_landing_zone_bdma/delta_news"
     else:

@@ -40,8 +40,8 @@ def fetch_from_tmdb_api(**kwargs):
 
 def ingest_tmdb(**kwargs):
     writing_mode = "overwrite"
-    is_gcs_enabled = Variable.get("is_gcs_enabled")
-    if is_gcs_enabled is "True":
+    is_gcs_enabled = Variable.get("is_gcs_enabled", "False")
+    if is_gcs_enabled == "True":
         spark = create_spark_local_session()
         delta_table_base_path = "gs://letstalk_landing_zone_bdma/delta_tmdb"
     else:
