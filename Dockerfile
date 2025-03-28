@@ -20,7 +20,7 @@ USER airflow
 
 RUN pip install --upgrade pip
 
-RUN pip install pyspark==3.5.5 delta-spark==3.3.0 pandas==2.2.3 pyarrow==19.0.1 requests newsapi-python kagglehub
+RUN pip install pyspark==3.5.5 delta-spark==3.3.0 pandas==2.2.3 pyarrow==19.0.1 requests newsapi-python kagglehub openpyxl
 
 ENV PYSPARK_PYTHON=/usr/local/bin/python
 ENV PYSPARK_DRIVER_PYTHON=/usr/local/bin/python
