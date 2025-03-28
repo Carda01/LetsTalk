@@ -1,12 +1,9 @@
-import json, datetime, os, tempfile, pyspark, logging
-from datetime import datetime, timedelta
-from delta import configure_spark_with_delta_pip
-from delta.tables import DeltaTable
+import json, datetime, os, tempfile, logging
+from datetime import datetime
 from newsapi import NewsApiClient
-from lib.utils import create_spark_local_session, create_spark_gcs_session
+from lib.utils import get_spark_and_path
 
 from airflow import DAG
-from airflow.models import Variable
 from airflow.operators.python import PythonOperator
 from airflow.hooks.base import BaseHook
 CATEGORIES = ['entertainment', 'sports', 'technology']
@@ -39,13 +36,8 @@ def fetch_from_news_api(**kwargs):
 def ingest_news(**kwargs):
     temp_file_paths = kwargs['ti'].xcom_pull(task_ids=f'fetch_from_news_api')
 
-    is_gcs_enabled = Variable.get('is_gcs_enabled', "False")
-    if is_gcs_enabled == "True":
-        spark = create_spark_gcs_session()
-        delta_table_base_path = "gs://letstalk_landing_zone_bdma/delta_news"
-    else:
-        spark = create_spark_local_session()
-        delta_table_base_path = "/data/delta_news"
+    spark, delta_table_base_path = get_spark_and_path()
+    delta_table_base_path += "/delta_news"
 
     for category, tmp_json_path in temp_file_paths.items():
         df = spark.read.json(tmp_json_path)

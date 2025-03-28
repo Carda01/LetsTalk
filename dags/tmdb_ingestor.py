@@ -1,10 +1,13 @@
-import json, datetime, os, tempfile, logging, requests
-from datetime import datetime
+import json, datetime, os, tempfile, pyspark, logging, requests
+from datetime import datetime, timedelta
+from delta import configure_spark_with_delta_pip
+from delta.tables import DeltaTable
 
-from lib.utils import get_spark_and_path
+from lib.utils import create_spark_gcs_session, create_spark_local_session
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.hooks.base import BaseHook
+from airflow.models import Variable
 
 
 def fetch_from_tmdb_api(**kwargs):
@@ -36,10 +39,16 @@ def fetch_from_tmdb_api(**kwargs):
 
 
 def ingest_tmdb(**kwargs):
-    temp_file_paths = kwargs['ti'].xcom_pull(task_ids=f'fetch_from_tmdb_api')
+    writing_mode = "overwrite"
+    is_gcs_enabled = Variable.get("is_gcs_enabled", "False")
+    if is_gcs_enabled == "True":
+        spark = create_spark_local_session()
+        delta_table_base_path = "gs://letstalk_landing_zone_bdma/delta_tmdb"
+    else:
+        spark = create_spark_gcs_session()
+        delta_table_base_path = "/data/delta_tmdb"
 
-    spark, delta_table_base_path = get_spark_and_path()
-    delta_table_base_path += "/delta_tmdb"
+    temp_file_paths = kwargs['ti'].xcom_pull(task_ids=f'fetch_from_tmdb_api')
 
     for category, tmp_json_path in temp_file_paths.items():
         df = spark.read.json(tmp_json_path)
@@ -47,7 +56,7 @@ def ingest_tmdb(**kwargs):
         delta_table_path = delta_table_base_path + f"/{category}"
         os.makedirs(os.path.dirname(delta_table_path), exist_ok=True)
 
-        df.write.mode("overwrite").format("delta").save(delta_table_path)
+        df.write.mode(writing_mode).format("delta").save(delta_table_path)
         logging.info(f"Writing to Delta Lake at {delta_table_path}")
 
         os.unlink(tmp_json_path)
