@@ -9,30 +9,37 @@ from airflow.hooks.base import BaseHook
 
 def fetch_from_tmdb_api(**kwargs):
     try:
+        endpoints_to_query = {
+                "upcoming": "/movie/upcoming?language=en-US&page=1",
+                "trending": "/trending/movie/week?language=en-US",
+                "now_playing": "/movie/now_playing?language=en-US&page=1"
+                }
         conn = BaseHook.get_connection('tmdb_api')
         api_key = conn.password
-        base_url = "https://api.themoviedb.org/3"
-        popular_movie_url = base_url + "/movie/popular?language=en-US&page=1"
-        logging.info(f"Requesting with access token: {api_key[:4]}...")
-
         headers = {
             "accept": "application/json",
             "Authorization": f"Bearer {api_key}"
         }
+        logging.info(f"Requesting with access token: {api_key[:4]}...")
+        base_url = "https://api.themoviedb.org/3"
+        temp_file_paths = {}
 
-        logging.info(f"Fetching popular movies from TMDB API")
-        pop_movie = requests.get(popular_movie_url, headers=headers).json()
+        for key, endpoint in endpoints_to_query.items():
+            request_url = base_url + endpoint
 
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_file:
-            json.dump(pop_movie.get("results"), temp_file)
-            temp_file_path = temp_file.name
+            logging.info(f"Fetching {key} movies from TMDB API")
+            movies = requests.get(request_url, headers=headers).json()
 
-        return {"popular": temp_file_path}
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_file:
+                json.dump(movies.get("results"), temp_file)
+                temp_file_paths[key] = temp_file.name
+
+        return temp_file_paths
+
 
     except Exception as e:
         logging.error(f"Error while fetching: {str(e)}")
         raise
-
 
 
 def ingest_tmdb(**kwargs):
