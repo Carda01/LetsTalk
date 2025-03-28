@@ -1,6 +1,8 @@
 import pyspark, os, logging
 from delta import configure_spark_with_delta_pip
 from airflow.models import Variable
+from pyspark.sql import functions as F
+from functools import reduce
 
 def get_spark_and_path():
     is_gcs_enabled = Variable.get("is_gcs_enabled", "False")
@@ -45,3 +47,10 @@ def create_spark_local_session():
 
     spark = configure_spark_with_delta_pip(builder).getOrCreate()
     return spark
+
+
+def get_null_percentage(df):
+    total_rows = df.count()
+    null_condition = reduce(lambda acc, c: acc | F.col(c).isNull(), df.columns, F.lit(False))
+    rows_with_null = df.filter(null_condition).count()
+    return (rows_with_null / total_rows) * 100

@@ -1,7 +1,8 @@
 import json, datetime, os, tempfile, logging, requests
 from datetime import datetime
+from pyspark.sql.functions import col
 
-from lib.utils import get_spark_and_path
+from lib.utils import get_spark_and_path, get_null_percentage
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.hooks.base import BaseHook
@@ -22,7 +23,7 @@ def fetch_from_tmdb_api(**kwargs):
         }
         logging.info(f"Requesting with access token: {api_key[:4]}...")
         base_url = "https://api.themoviedb.org/3"
-        temp_file_paths = {}
+        fetched_data_info = {}
 
         for key, endpoint in endpoints_to_query.items():
             request_url = base_url + endpoint
@@ -32,9 +33,13 @@ def fetch_from_tmdb_api(**kwargs):
 
             with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_file:
                 json.dump(movies.get("results"), temp_file)
-                temp_file_paths[key] = temp_file.name
+                fetched_data_info[key] = {}
+                fetched_data_info[key]['path'] = temp_file.name
+                fetched_data_info[key]['metadata'] = {}
+                if key in ['upcoming', 'now_playing']:
+                    fetched_data_info[key]['metadata']['validity_dates'] = movies.get("dates")
 
-        return temp_file_paths
+        return fetched_data_info
 
 
     except Exception as e:
@@ -43,21 +48,26 @@ def fetch_from_tmdb_api(**kwargs):
 
 
 def ingest_tmdb(**kwargs):
-    temp_file_paths = kwargs['ti'].xcom_pull(task_ids=f'fetch_from_tmdb_api')
+    fetched_data_info = kwargs['ti'].xcom_pull(task_ids=f'fetch_from_tmdb_api')
 
     spark, delta_table_base_path = get_spark_and_path()
     delta_table_base_path += "/delta_tmdb"
 
-    for category, tmp_json_path in temp_file_paths.items():
-        df = spark.read.json(tmp_json_path)
+    for category, fetched_info in fetched_data_info.items():
+        df = spark.read.json(fetched_info['path'])
 
         delta_table_path = delta_table_base_path + f"/{category}"
         os.makedirs(os.path.dirname(delta_table_path), exist_ok=True)
+        metadata = fetched_data_info[category]['metadata']
+        metadata["perc_rows_inserted_with_null"] = get_null_percentage(df)
 
-        df.write.mode("overwrite").format("delta").save(delta_table_path)
+        df.write.mode("overwrite") \
+            .format("delta") \
+            .option("userMetadata", json.dumps(metadata)) \
+            .save(delta_table_path)
         logging.info(f"Writing to Delta Lake at {delta_table_path}")
 
-        os.unlink(tmp_json_path)
+        os.unlink(fetched_info['path'])
 
     spark.stop()
     logging.info("Spark session stopped successfully")
