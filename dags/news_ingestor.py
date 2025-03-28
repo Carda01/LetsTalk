@@ -3,20 +3,13 @@ from datetime import datetime, timedelta
 from delta import configure_spark_with_delta_pip
 from delta.tables import DeltaTable
 from newsapi import NewsApiClient
+from lib.utils import create_spark_local_session, create_spark_gcs_session
 
 from airflow import DAG
+from airflow.models import Variable
 from airflow.operators.python import PythonOperator
 from airflow.hooks.base import BaseHook
 CATEGORIES = ['entertainment', 'sports', 'technology']
-
-def create_spark_session():
-    builder = pyspark.sql.SparkSession.builder.appName("LetsTalk") \
-        .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
-        .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
-
-    spark = configure_spark_with_delta_pip(builder).getOrCreate()
-    return spark
-
 
 def fetch_from_news_api(**kwargs):
     try:
@@ -45,12 +38,19 @@ def fetch_from_news_api(**kwargs):
 
 def ingest_news(**kwargs):
     temp_file_paths = kwargs['ti'].xcom_pull(task_ids=f'fetch_from_news_api')
-    spark = create_spark_session()
+
+    is_gcs_enabled = Variable.get('is_gcs_enabled')
+    if is_gcs_enabled is "True":
+        spark = create_spark_gcs_session()
+        delta_table_base_path = "gs://letstalk_landing_zone_bdma/delta_news"
+    else:
+        spark = create_spark_local_session()
+        delta_table_base_path = "/data/delta_news"
 
     for category, tmp_json_path in temp_file_paths.items():
         df = spark.read.json(tmp_json_path)
 
-        delta_table_path = f"/data/delta_news/{category}"
+        delta_table_path = delta_table_base_path + f"/{category}"
         os.makedirs(os.path.dirname(delta_table_path), exist_ok=True)
 
         df.write.mode("append").format("delta").save(delta_table_path)
