@@ -13,7 +13,7 @@ ENV JAVA_HOME=/usr/lib/jvm/default-java
 ENV PATH=$PATH:$JAVA_HOME/bin
 
 RUN mkdir -p /jars
-COPY jars/gcs-connector-hadoop3-latest.jar gcs/
+COPY gcs-connector-hadoop3-latest.jar gcs/
 COPY gcs.json gcs/
 
 USER airflow

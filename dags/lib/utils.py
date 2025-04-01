@@ -8,7 +8,7 @@ def get_spark_and_path():
     is_gcs_enabled = Variable.get("is_gcs_enabled", "False")
     if is_gcs_enabled == "True":
         spark = create_spark_gcs_session()
-        delta_table_base_path = "gs://letstalk_landing_zone_bdma"
+        delta_table_base_path = Variable.get("gcs_bucket_path", "gs://letstalk_landing_zone_bdma")
     else:
         spark = create_spark_local_session()
         delta_table_base_path = "/data"
@@ -29,7 +29,7 @@ def create_spark_gcs_session():
         .set("spark.hadoop.google.cloud.auth.service.account.enable", "true")
         .set("spark.hadoop.google.cloud.auth.service.account.json.keyfile", "gcs/gcs.json")
         .set("spark.sql.shuffle.partitions", "4")
-        .set("spark.jars", "gcs/gcs-connector-hadoop3-latest.jar")
+        .set("spark.jars", "gcs/gcs-connector-hadoop.jar")
         .setMaster(
             "local[*]"
         )
