@@ -43,7 +43,9 @@ You can now initialize airflow cluster
 docker compose up
 ```
 
-Once ready, you can connect to your [local airflow dashboard](http://localhost:8080/).
+Once ready, you can connect to your [local airflow dashboard](http://localhost:8080/), using the credentials for your cluster, in case you did not modify them, you can use the default ones:
+- Username: airflow
+- Password: airflow
 
 Before unpausing the dags, make sure your connections and variables are ready.
 
