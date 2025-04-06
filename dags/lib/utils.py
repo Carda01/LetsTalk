@@ -29,6 +29,8 @@ def create_spark_gcs_session():
         .set("spark.hadoop.google.cloud.auth.service.account.enable", "true")
         .set("spark.hadoop.google.cloud.auth.service.account.json.keyfile", "gcs/gcs.json")
         .set("spark.sql.shuffle.partitions", "4")
+        .set("spark.driver.memory", "2g") \
+        .set("spark.executor.memory", "2g") \
         .set("spark.jars", "gcs/gcs-connector-hadoop.jar")
         .setMaster(
             "local[*]"
