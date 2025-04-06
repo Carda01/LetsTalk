@@ -1,6 +1,6 @@
 import json, datetime, os, tempfile, logging, requests
 from datetime import datetime
-from pyspark.sql.functions import col
+from pyspark.sql.functions import current_timestamp
 
 from lib.utils import get_spark_and_path, get_null_percentage
 from airflow import DAG
@@ -61,7 +61,9 @@ def ingest_tmdb(**kwargs):
         metadata = fetched_data_info[category]['metadata']
         metadata["perc_rows_inserted_with_null"] = get_null_percentage(df)
 
-        df.write.mode("overwrite") \
+        logging.info(f"Adding new column with timestamps")
+        df = df.withColumn("ingestion_time", current_timestamp())
+        df.write.mode("append") \
             .format("delta") \
             .option("userMetadata", json.dumps(metadata)) \
             .save(delta_table_path)
