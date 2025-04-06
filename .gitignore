@@ -2,6 +2,7 @@
 logs/
 data/
 .idea/
+keys.txt
 *.json
 __pycache__
 jars/

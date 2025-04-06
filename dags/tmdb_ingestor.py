@@ -1,5 +1,6 @@
 import os, logging
 from lib.utils import get_spark_and_path
+from pyspark.sql.functions import current_timestamp
 from datetime import datetime
 import kagglehub
 from kagglehub import KaggleDatasetAdapter
@@ -25,8 +26,9 @@ def fetch_and_upload(**kwargs):
         df = spark.createDataFrame(df)
         os.makedirs(os.path.dirname(delta_table_path), exist_ok=True)
         logging.info(f"Writing to Delta Lake at {delta_table_path}")
+        df = df.withColumn("ingestion_time", current_timestamp())
         df.write \
-            .mode("overwrite") \
+            .mode("append") \
             .format("delta") \
             .option("userMetadata", json.dumps(metadata)) \
             .save(delta_table_path)
