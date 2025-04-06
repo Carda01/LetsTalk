@@ -3,6 +3,7 @@ from lib.utils import get_spark_and_path
 from datetime import datetime
 import kagglehub
 from kagglehub import KaggleDatasetAdapter
+import json
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
@@ -11,8 +12,9 @@ TABLES = ["MOVIE", "GENRE", "MOVIE_GENRE"]
 
 def fetch_and_upload(**kwargs):
     spark, delta_table_base_path = get_spark_and_path()
-    delta_table_base_path += "/delta_tmdb"
+    delta_table_base_path += "/delta_tmdb/database"
 
+    metadata = {"ingestion_timestamp": datetime.now().isoformat()}
     for table in TABLES:
         delta_table_path = delta_table_base_path + f"/{table.lower()}"
         logging.info(f"Downloading table {table.lower()}")
@@ -23,7 +25,11 @@ def fetch_and_upload(**kwargs):
         df = spark.createDataFrame(df)
         os.makedirs(os.path.dirname(delta_table_path), exist_ok=True)
         logging.info(f"Writing to Delta Lake at {delta_table_path}")
-        df.write.mode("overwrite").format("delta").save(delta_table_path)
+        df.write \
+            .mode("overwrite") \
+            .format("delta") \
+            .option("userMetadata", json.dumps(metadata)) \
+            .save(delta_table_path)
 
 
     spark.stop()
