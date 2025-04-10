@@ -4,15 +4,18 @@ from lib.utils import get_spark_and_path, get_null_percentage
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+from airflow.hooks.base import BaseHook
 
 LEAGUES_API_URL = "https://v3.football.api-sports.io/leagues"
 HEADERS = {
     'x-rapidapi-host': "v3.football.api-sports.io",
-    'x-rapidapi-key': "dc72c9cd0123f09af49faf572c34f3cf"
 }
 
 def fetch_from_sports_api(**kwargs):
     try:
+        conn = BaseHook.get_connection('sports_api')
+        api_key = conn.password
+        HEADERS['x-rapidapi-key'] = api_key
         logging.info("Fetching leagues data from Sports API")
         response_leagues = requests.get(LEAGUES_API_URL, headers=HEADERS)
         # Extract only the main "response" field for relational data storage
