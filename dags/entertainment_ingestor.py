@@ -1,127 +1,105 @@
-import json, os, tempfile, logging, requests
+import json, datetime, os, tempfile, logging, requests
 from datetime import datetime
-from lib.utils import get_spark_and_path, get_null_percentage
+from pyspark.sql.functions import current_timestamp
 
+from lib.utils import get_spark_and_path, get_null_percentage
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+from airflow.hooks.base import BaseHook
 
-LEAGUES_API_URL = "https://v3.football.api-sports.io/leagues"
-HEADERS = {
-    'x-rapidapi-host': "v3.football.api-sports.io",
-    'x-rapidapi-key': "dc72c9cd0123f09af49faf572c34f3cf"
-}
 
-def fetch_from_sports_api(**kwargs):
+def fetch_from_tmdb_api(**kwargs):
     try:
-        logging.info("Fetching leagues data from Sports API")
-        response_leagues = requests.get(LEAGUES_API_URL, headers=HEADERS)
-        # Extract only the main "response" field for relational data storage
-        leagues_data = response_leagues.json().get("response", [])
-        
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_file:
-            json.dump(leagues_data, temp_file)
-            leagues_file_path = temp_file.name
-        
-        num_leagues = len(leagues_data)
-        leagues_metadata = {"inserted_rows": num_leagues}
-        
-        today = datetime.now().strftime('%Y-%m-%d')
-        matches_api_url = f"https://v3.football.api-sports.io/fixtures?date={today}"
-        logging.info("Fetching matches data from Sports API")
-        response_matches = requests.get(matches_api_url, headers=HEADERS)
-        # Extract only the main "response" field for relational data storage
-        matches_data = response_matches.json().get("response", [])
-        
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_file:
-            json.dump(matches_data, temp_file)
-            matches_file_path = temp_file.name
-        
-        num_matches = len(matches_data)
-        matches_metadata = {"inserted_rows": num_matches}
-        
-        logging.info(f"Fetched {num_leagues} leagues and {num_matches} matches")
-        
-        return {
-            "leagues": {
-                "path": leagues_file_path,
-                "metadata": leagues_metadata
-            },
-            "matches": {
-                "path": matches_file_path,
-                "metadata": matches_metadata
-            }
+        endpoints_to_query = {
+                "upcoming": "/movie/upcoming?language=en-US&page=1",
+                "trending": "/trending/movie/week?language=en-US",
+                "now_playing": "/movie/now_playing?language=en-US&page=1"
+                }
+        conn = BaseHook.get_connection('tmdb_api')
+        api_key = conn.password
+        headers = {
+            "accept": "application/json",
+            "Authorization": f"Bearer {api_key}"
         }
-        
+        logging.info(f"Requesting with access token: {api_key[:4]}...")
+        base_url = "https://api.themoviedb.org/3"
+        fetched_data_info = {}
+
+        for key, endpoint in endpoints_to_query.items():
+            request_url = base_url + endpoint
+
+            logging.info(f"Fetching {key} movies from TMDB API")
+            movies = requests.get(request_url, headers=headers).json()
+
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as temp_file:
+                json.dump(movies.get("results"), temp_file)
+                fetched_data_info[key] = {}
+                fetched_data_info[key]['path'] = temp_file.name
+                fetched_data_info[key]['metadata'] = {}
+                if key in ['upcoming', 'now_playing']:
+                    fetched_data_info[key]['metadata']['validity_dates'] = movies.get("dates")
+
+        return fetched_data_info
+
+
     except Exception as e:
-        logging.error(f"Error fetching sports data: {str(e)}")
+        logging.error(f"Error while fetching: {str(e)}")
         raise
 
-def ingest_sports_data(**kwargs):
-    fetched_data_info = kwargs['ti'].xcom_pull(task_ids='fetch_from_sports_api')
-    
+
+def ingest_tmdb(**kwargs):
+    fetched_data_info = kwargs['ti'].xcom_pull(task_ids=f'fetch_from_tmdb_api')
+
     spark, delta_table_base_path = get_spark_and_path()
-    base_path = os.path.join(delta_table_base_path, "delta_sports")
-    
-    for key in fetched_data_info:
-        file_path = fetched_data_info[key]['path']
-        metadata = fetched_data_info[key]['metadata']
-        delta_table_path = os.path.join(base_path, key)
+    delta_table_base_path += "/delta_tmdb"
+
+    for category, fetched_info in fetched_data_info.items():
+        df = spark.read.json(fetched_info['path'])
+
+        delta_table_path = delta_table_base_path + f"/{category}"
         os.makedirs(os.path.dirname(delta_table_path), exist_ok=True)
-        
-        df = spark.read.json(file_path)
-        
-        logging.info(f"Sample data for {key}:")
-        df.show(5)
-        
+        metadata = fetched_data_info[category]['metadata']
         metadata["perc_rows_inserted_with_null"] = get_null_percentage(df)
-        
+
+        logging.info(f"Adding new column with timestamps")
+        df = df.withColumn("ingestion_time", current_timestamp())
         df.write.mode("append") \
             .format("delta") \
-            .option("mergeSchema", "true") \
             .option("userMetadata", json.dumps(metadata)) \
             .save(delta_table_path)
-        
-        logging.info(f"Written {key} data to Delta Lake at {delta_table_path}")
-        os.unlink(file_path)
-    
+        logging.info(f"Writing to Delta Lake at {delta_table_path}")
+
+        os.unlink(fetched_info['path'])
+
     spark.stop()
     logging.info("Spark session stopped successfully")
 
+
 dag = DAG(
-    dag_id='sports_api_ingestor_dag',
+    dag_id='movie_dag',
     start_date=datetime(2025, 3, 1),
-    description='A DAG that fetches leagues and matches from the Sports API and loads them into Delta Lake',
-    schedule_interval="0 */6 * * *",  # Every 6 hours
+    description='A dag that fetches data from IMDB and loads them into Delta Lake',
+    schedule_interval="@weekly",
     catchup=False
 )
 
-fetch_sports_task = PythonOperator(
-    task_id='fetch_from_sports_api',
-    python_callable=fetch_from_sports_api,
+
+"""
+Operators and flow definition
+"""
+
+fetch_tmdb_task = PythonOperator(
+    task_id='fetch_from_tmdb_api',
+    python_callable=fetch_from_tmdb_api,
     provide_context=True,
     dag=dag
 )
 
-load_sports_task = PythonOperator(
-    task_id='load_sports_to_delta_lake',
-    python_callable=ingest_sports_data,
+load_tmdb_task = PythonOperator(
+    task_id='load_tmdb_to_delta_lake',
+    python_callable=ingest_tmdb,
     provide_context=True,
     dag=dag
 )
 
-fetch_sports_task >> load_sports_task
-
-# This part is for testing the functions independently outside of Airflow if needed.
-"""
-if __name__ == "__main__":
-    result = fetch_from_sports_api()
-    print("Fetch result:", result)
-    
-    class DummyTaskInstance:
-        def xcom_pull(self, task_ids):
-            return result
-
-    context = {'ti': DummyTaskInstance()}
-    ingest_sports_data(**context)
-    print("Ingest result: Completed successfully")
-"""
+fetch_tmdb_task >> load_tmdb_task
