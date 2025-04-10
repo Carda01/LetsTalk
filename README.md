@@ -82,7 +82,10 @@ docker run -d --name kafka --network kafka-net \
   -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 \
   confluentinc/cp-kafka:7.3.0
 ```
-Once you have completed the setup of Kafka, please run  news_producer.py and news_consumer.py. 
+Once you have completed the setup of Kafka, please run:
+- news_producer.py
+- news_consumer.py
+
 Subsequently, run the below commands in order:
 
 #### Test Producer DAG
