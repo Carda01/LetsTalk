@@ -34,14 +34,20 @@ def fetch_from_news_api(**kwargs):
 
 def publish_news_to_kafka(**kwargs):
     fetched_data_info = kwargs['ti'].xcom_pull(task_ids='fetch_from_news_api')
-    conf = {'bootstrap.servers': 'localhost:9092'}
+    logging.info(fetched_data_info)
+    conf = {'bootstrap.servers': 'kafka:9092'}
     producer = Producer(conf)
     topic = 'news_topic'
+    logging.info('connecting')
     for category, fetched_info in fetched_data_info.items():
         with open(fetched_info['path'], 'r') as f:
             news_data = f.read()
+        logging.info(category)
+        logging.info(news_data)
         producer.produce(topic, key=category, value=news_data)
+        logging.info('flushing')
         producer.flush()
+        logging.info('pd')
         os.unlink(fetched_info['path'])
         logging.info(f"Published {category} news to Kafka topic {topic}")
 

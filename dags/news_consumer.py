@@ -8,7 +8,7 @@ import time
 
 def consume_news_from_kafka(**kwargs):
     conf = {
-        'bootstrap.servers': 'localhost:9092',
+        'bootstrap.servers': 'kafka:9092',
         'group.id': 'news_consumer_group',
         'auto.offset.reset': 'earliest'
     }
