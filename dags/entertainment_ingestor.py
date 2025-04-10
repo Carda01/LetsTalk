@@ -4,6 +4,7 @@ from pyspark.sql.functions import current_timestamp
 
 from lib.utils import get_spark_and_path, get_null_percentage
 from airflow import DAG
+from pyspark.sql.functions import lit
 from airflow.operators.python import PythonOperator
 from airflow.hooks.base import BaseHook
 
@@ -35,9 +36,8 @@ def fetch_from_tmdb_api(**kwargs):
                 json.dump(movies.get("results"), temp_file)
                 fetched_data_info[key] = {}
                 fetched_data_info[key]['path'] = temp_file.name
-                fetched_data_info[key]['metadata'] = {}
                 if key in ['upcoming', 'now_playing']:
-                    fetched_data_info[key]['metadata']['validity_dates'] = movies.get("dates")
+                    fetched_data_info[key]['validity_dates'] = movies.get("dates")
 
         return fetched_data_info
 
@@ -58,11 +58,13 @@ def ingest_tmdb(**kwargs):
 
         delta_table_path = delta_table_base_path + f"/{category}"
         os.makedirs(os.path.dirname(delta_table_path), exist_ok=True)
-        metadata = fetched_data_info[category]['metadata']
+        metadata = {}
         metadata["perc_rows_inserted_with_null"] = get_null_percentage(df)
 
         logging.info(f"Adding new column with timestamps")
         df = df.withColumn("ingestion_time", current_timestamp())
+        if category in ['upcoming', 'now_playing']:
+            df = df.withColumn("begin_date", lit(fetched_info['validity_dates']['minimum'])).withColumn("end_date", lit(fetched_info['validity_dates']['maximum']))
         df.write.mode("append") \
             .format("delta") \
             .option("userMetadata", json.dumps(metadata)) \
