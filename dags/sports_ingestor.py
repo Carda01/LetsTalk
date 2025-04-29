@@ -79,8 +79,6 @@ def ingest_sports_data(**kwargs):
         df.show(5)
 
         metadata["perc_rows_inserted_with_null"] = get_null_percentage(df)
-        if key == "matches":
-            df.drop('score')
 
         df.write.mode("append") \
             .format("delta") \
