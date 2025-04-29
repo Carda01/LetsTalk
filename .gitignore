@@ -1,6 +1,7 @@
 .env
 logs/
-data/
+data*/*
+version
 .idea/
 questions.md
 BDMP2/keys.txt
