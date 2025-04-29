@@ -5,6 +5,8 @@ from lib.utils import get_spark_and_path, get_null_percentage
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.hooks.base import BaseHook
+from pyspark.sql.types import *
+from pyspark.sql.functions import col
 
 LEAGUES_API_URL = "https://v3.football.api-sports.io/leagues"
 HEADERS = {
@@ -75,9 +77,11 @@ def ingest_sports_data(**kwargs):
         
         logging.info(f"Sample data for {key}:")
         df.show(5)
-        
+
         metadata["perc_rows_inserted_with_null"] = get_null_percentage(df)
-        
+        if key == "matches":
+            df.drop('score')
+
         df.write.mode("append") \
             .format("delta") \
             .option("mergeSchema", "true") \

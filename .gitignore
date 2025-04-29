@@ -6,3 +6,4 @@ keys.txt
 *.json
 __pycache__
 jars/
+gcs-connector-hadoop.jar
