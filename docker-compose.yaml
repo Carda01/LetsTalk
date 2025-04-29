@@ -28,8 +28,6 @@ x-airflow-common:
       condition: service_healthy
     postgres:
       condition: service_healthy
-    kafka:
-      condition: service_started
   networks:
     - bdm-net
 
@@ -213,39 +211,6 @@ services:
       - bash
       - -c
       - airflow
-
-  zookeeper:
-    image: zookeeper:3.7
-    container_name: zookeeper
-    ports:
-      - "2181:2181"
-    networks:
-      - bdm-net
-
-  kafka:
-    image: confluentinc/cp-kafka:7.3.0
-    container_name: kafka
-    ports:
-      - "9092:9092"
-    environment:
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-    depends_on:
-      - zookeeper
-    networks:
-      - bdm-net
-    restart: unless-stopped
-    command: >
-      bash -c "
-      echo Waiting for Zookeeper to be available...;
-      while ! nc -z zookeeper 2181; do sleep 1; done;
-      echo Zookeeper is up!;
-      /etc/confluent/docker/run
-      "
-
 
 networks:
   bdm-net:
