@@ -1,14 +1,23 @@
 import logging
+from abc import ABC, abstractmethod
+
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
-from pyspark.sql.functions import col, when, lower, regexp_replace, struct
+from pyspark.sql.functions import col, when, lower, regexp_replace, struct, to_timestamp
+from pyspark.sql.types import StructType, StructField, StringType, LongType, TimestampType
 
 
-class Processer:
+class Processer(ABC):
+
     def __init__(self, spark, df):
         logging.basicConfig(level=logging.INFO)
         self.spark = spark
         self.df = df
+
+
+    @abstractmethod
+    def ensure_schema(self):
+        pass
 
 
     def remove_clear_duplicates(self):
@@ -38,6 +47,11 @@ class Processer:
 class NewsProcessor(Processer):
     def __init__(self, spark, df):
         super().__init__(spark, df)
+
+
+    def ensure_schema(self):
+        self.df = (self.df.withColumn("publishedAt",
+                        to_timestamp(col("publishedAt"), "yyyy-MM-dd'T'HH:mm:ssX")))
 
 
     def name_to_id(self):
