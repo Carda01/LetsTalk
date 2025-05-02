@@ -43,6 +43,17 @@ class Processer(ABC):
         print(f"Removed {initial_count - final_count} hidden duplicate(s)")
 
 
+    def normalize_text(self, columns):
+        for column in columns:
+            self.df = self.df.withColumn(column, lower(col(column)))
+            self.df = self.df.withColumn(column, regexp_replace(col(column), r"http\S+|www\.\S+", " "))
+            self.df = self.df.withColumn(column, regexp_replace(col(column), r"[^a-zA-Z\s]", " "))
+
+
+    def order_by(self, column, ascending=True):
+        self.df = self.df.orderBy(column, ascending=ascending)
+
+
 
 class NewsProcessor(Processer):
     def __init__(self, spark, df):
@@ -65,3 +76,7 @@ class NewsProcessor(Processer):
                 )
             ).otherwise(col("source"))
         )
+
+
+    def expand_source(self):
+        self.df = self.df.withColumn("source", col("source.id"))
