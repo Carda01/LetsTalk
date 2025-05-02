@@ -38,15 +38,15 @@ def is_cdf_enabled(delta_table):
 
 
 class IncrementalLoader:
-    def __init__(self, spark, base_path, table_name):
+    def __init__(self, spark, absolute_base_path, table_name):
         self.spark = spark
-        self.base_path = base_path
+        self.base_path = absolute_base_path
         self.control_table_path = os.path.join(self.base_path, "control_table")
         if not os.path.exists(self.control_table_path):
             os.makedirs(self.control_table_path)
             create_control_table(self.control_table_path, spark)
         self.table_name = table_name
-        self.landing_path = os.path.join(self.base_path, self.table_name)
+        self.landing_path = str(os.path.join(self.base_path, self.table_name))
         self.latest_version = None
 
 
