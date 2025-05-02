@@ -27,8 +27,8 @@ class Processer(ABC):
         print(f"Removed {initial_count - final_count} simple duplicate(s)")
 
 
-    def remove_hidden_duplicates(self, key_cols):
-        window = Window.partitionBy(key_cols).orderBy(F.col("publishedAt").desc())
+    def remove_hidden_duplicates(self, key_cols, order_cols):
+        window = Window.partitionBy(key_cols).orderBy(order_cols)
         initial_count = self.df.count()
         df_columns = [column for column in self.df.columns if column not in key_cols]
 
