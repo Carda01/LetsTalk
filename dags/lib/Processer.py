@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from delta import DeltaTable
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
-from pyspark.sql.functions import col, when, lower, regexp_replace, struct, to_timestamp, max as spark_max, lit, coalesce, concat, length, row_number
+from pyspark.sql.functions import col, when, lower, regexp_replace, struct, to_timestamp, max as spark_max, lit, coalesce, concat, length, row_number, explode
 from pyspark.sql.types import StructType, StructField, StringType, LongType, TimestampType
 
 
@@ -136,6 +136,32 @@ class SportsProcessor(Processer):
     def ensure_schema(self):
         pass
 
+
+    def expand(self):
+        self.df = (self.df
+         .withColumn('league-info', explode("seasons")).drop("seasons")
+         .withColumn('league-info_current', col('league-info.current'))
+         .withColumn('league-info_end', col('league-info.end'))
+         .withColumn('league-info_start', col('league-info.start'))
+         .withColumn('league-info_year', col('league-info.year'))
+         .withColumn('coverage', col('league-info.coverage'))
+         .drop('league-info')
+         .withColumn('coverage_injuries', col('coverage.injuries'))
+         .withColumn('coverage_odds', col('coverage.odds'))
+         .withColumn('coverage_players', col('coverage.players'))
+         .withColumn('coverage_predictions', col('coverage.predictions'))
+         .withColumn('coverage_standings', col('coverage.standings'))
+         .withColumn('coverage_top_assists', col('coverage.top_assists'))
+         .withColumn('coverage_top_cards', col('coverage.top_cards'))
+         .withColumn('coverage_top_scorers', col('coverage.top_scorers'))
+         .withColumn('fixtures', col('coverage.fixtures'))
+         .drop('coverage')
+         .withColumn('fixture_events', col('fixtures.events'))
+         .withColumn('fixture_lineups', col('fixtures.lineups'))
+         .withColumn('fixture_statistics_fixtures', col('fixtures.statistics_fixtures'))
+         .withColumn('fixture_statistics_players', col('fixtures.statistics_players'))
+         .drop('fixtures')
+                   )
 
     def generate_leagues(self):
         self.df = (self.df
