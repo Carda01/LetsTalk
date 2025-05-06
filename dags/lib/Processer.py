@@ -1,9 +1,10 @@
 import logging
 from abc import ABC, abstractmethod
 
+from delta import DeltaTable
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
-from pyspark.sql.functions import col, when, lower, regexp_replace, struct, to_timestamp
+from pyspark.sql.functions import col, when, lower, regexp_replace, struct, to_timestamp, max as spark_max, lit, coalesce
 from pyspark.sql.types import StructType, StructField, StringType, LongType, TimestampType
 
 
@@ -24,7 +25,7 @@ class Processer(ABC):
         initial_count = self.df.count()
         self.df = self.df.dropDuplicates()
         final_count = self.df.count()
-        print(f"Removed {initial_count - final_count} simple duplicate(s)")
+        logging.info(f"Removed {initial_count - final_count} simple duplicate(s)")
 
 
     def remove_hidden_duplicates(self, key_cols, order_cols):
@@ -40,7 +41,7 @@ class Processer(ABC):
             for column in df_columns
         ]))
         final_count = self.df.count()
-        print(f"Removed {initial_count - final_count} hidden duplicate(s)")
+        logging.info(f"Removed {initial_count - final_count} hidden duplicate(s)")
 
 
     def normalize_text(self, columns):
@@ -52,6 +53,47 @@ class Processer(ABC):
 
     def order_by(self, column, ascending=True):
         self.df = self.df.orderBy(column, ascending=ascending)
+
+
+    def merge_with_trusted(self, path, key_cols):
+        max_ts = (self.spark.read
+              .format("delta")
+              .load(path)
+              .select(spark_max(col("publishedAt")).alias("max_ts"))
+                  .collect())[0]["max_ts"]
+
+
+        df_new = self.df.filter(col("publishedAt") > lit(max_ts))
+        df_overlap = self.df.filter(col("publishedAt") <= lit(max_ts))
+
+        delta_table = DeltaTable.forPath(self.spark, path)
+        data_cols = [c for c in df_overlap.columns if c not in key_cols]
+
+        update_expr = {c: coalesce(col(f"overlap.{c}"), col(f"trusted.{c}")) for c in data_cols}
+        init_count = delta_table.toDF().count()
+
+        logging.info("Saving unique records from overlapping ones")
+        (
+            delta_table.alias("trusted")
+            .merge(
+                df_overlap.alias("overlap"),
+                " AND ".join([f"trusted.{k}=overlap.{k}" for k in key_cols])
+            )
+            .whenMatchedUpdate(
+                set=update_expr
+            )
+            .whenNotMatchedInsertAll()
+            .execute()
+        )
+
+        mid_count = delta_table.toDF().count()
+        logging.info(f"Added new {mid_count - init_count} unique records")
+
+        logging.info("Appending non overlapping records")
+        df_new.write.format("delta").mode("append").save(path)
+
+        logging.info(f"Adding new {df_new.count()} records")
+
 
 
 
