@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from delta import DeltaTable
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
-from pyspark.sql.functions import col, when, lower, regexp_replace, struct, to_timestamp, max as spark_max, lit, coalesce
+from pyspark.sql.functions import col, when, lower, regexp_replace, struct, to_timestamp, max as spark_max, lit, coalesce, concat
 from pyspark.sql.types import StructType, StructField, StringType, LongType, TimestampType
 
 
@@ -106,6 +106,9 @@ class NewsProcessor(Processer):
         self.df = (self.df.withColumn("publishedAt",
                         to_timestamp(col("publishedAt"), "yyyy-MM-dd'T'HH:mm:ssX")))
 
+        self.df = self.df.filter(col("url").isNotNull())
+
+
 
     def name_to_id(self):
         self.df = self.df.withColumn(
@@ -122,3 +125,49 @@ class NewsProcessor(Processer):
 
     def expand_source(self):
         self.df = self.df.withColumn("source", col("source.id"))
+
+
+
+class SportsProcessor(Processer):
+    def __init__(self, spark, df):
+        super().__init__(spark, df)
+
+
+    def ensure_schema(self):
+        pass
+
+
+    def generate_countries(self):
+        self.df = self.df.withColumn('country_code',
+                            when(lower(col('country.name')) == 'world', "wrd")
+                            .otherwise(lower(col('country.code')))) \
+            .withColumn('country_name',
+                        lower(col('country.name'))) \
+            .withColumn('country_flag',
+                        lower(col('country.flag'))) \
+            .drop('country')
+
+        null_codes = self.df.filter(col('country_code').isNull()).select('country_name').distinct()
+        if null_codes.count() > 0:
+            logging.warning(f'There are null country codes (apart from World) {null_codes.collect()}, setting them to their name, if that is also null, they will be removed')
+            self.df = self.df.withColumn('country_code',
+                                 when(col('country_code').isNull(), col('country_name')).otherwise(col('country_code')))
+            self.df = self.df.dropna(subset=['country_code'])
+
+
+        countries = self.df.select('country_code', 'country_name', 'country_flag').distinct()
+        duplicate_country_codes = countries.groupBy('country_code').count().filter(col('count') > 1).select('country_code').collect()
+        repeated_countries = [row['country_code'] for row in duplicate_country_codes]
+        if len(repeated_countries) > 0:
+            logging.warning("Some countries have the same code: {}\n Changing code, but probably a manual check could be needed".format(repeated_countries))
+
+            self.df = self.df.withColumn('country_code',
+                                 when(col('country_code').isin(repeated_countries),
+                                      concat(col('country_code'), lit("-"), col('country_name'))
+                                      ).otherwise(col('country_code')))
+
+
+        countries = self.df.select('country_code', 'country_name', 'country_flag').distinct()
+        self.df = self.df.drop('country_flag', 'country_name')
+
+        return countries
