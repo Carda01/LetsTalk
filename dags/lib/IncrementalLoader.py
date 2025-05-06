@@ -104,6 +104,7 @@ class IncrementalLoader:
                 .option("endingVersion", str(latest_version)) \
                 .load(self.landing_path) \
                 .filter("_change_type = 'insert'")
+            df = df.drop("_change_type", "_commit_version", "_commit_timestamp")
         else:
             print("CDF not available — doing full load")
             if not cdf_enabled:
