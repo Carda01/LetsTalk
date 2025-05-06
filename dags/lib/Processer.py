@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from delta import DeltaTable
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
-from pyspark.sql.functions import col, when, lower, regexp_replace, struct, to_timestamp, max as spark_max, lit, coalesce, concat
+from pyspark.sql.functions import col, when, lower, regexp_replace, struct, to_timestamp, max as spark_max, lit, coalesce, concat, length, row_number
 from pyspark.sql.types import StructType, StructField, StringType, LongType, TimestampType
 
 
@@ -135,6 +135,25 @@ class SportsProcessor(Processer):
 
     def ensure_schema(self):
         pass
+
+
+    def generate_leagues(self):
+        self.df = (self.df
+              .withColumn('league_id', col('league.id'))
+                   .withColumn('league_logo', col('league.logo'))
+                   .withColumn('league_name', lower(col('league.name')))
+                   .withColumn('league_type', lower(col('league.type')))
+                   .drop('league'))
+
+        window_spec = Window.partitionBy('league_id').orderBy(length('league_id'))
+        leagues = self.df.select('league_id', 'country_code', 'league_name', 'league_type', 'league_logo').distinct()
+
+        leagues = leagues.withColumn("row_num", row_number().over(window_spec))
+        leagues = leagues.filter(col('row_num') == 1).drop("row_num")
+
+        self.df = self.df.drop('league_name', 'league_logo', 'league_type', 'country_code')
+
+        return leagues
 
 
     def generate_countries(self):
