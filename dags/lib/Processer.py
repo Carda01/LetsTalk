@@ -7,7 +7,6 @@ from pyspark.sql.window import Window
 from pyspark.sql.functions import col, when, lower, regexp_replace, struct, to_timestamp, max as spark_max, lit, coalesce, concat, length, row_number, explode
 from pyspark.sql.types import StructType, StructField, StringType, LongType, TimestampType
 
-
 class Processer(ABC):
 
     def __init__(self, spark, df):
@@ -216,3 +215,47 @@ class SportsProcessor(Processer):
         self.df = self.df.drop('country_flag', 'country_name')
 
         return countries
+
+
+class TMDBProcessor(Processer):
+    def __init__(self, spark, df):
+        super().__init__(spark, df)
+
+
+    def ensure_schema(self):
+        cols= ["id", "film_id","title","original_language","overview","release_date","revenue","budget","runtime","adult","popularity","vote_average","vote_count","ingestion_time", "begin_date", "end_date"]
+        
+        self.df = self.df.toDF(*[c.lower() for c in self.df.columns])
+        rename_map = {
+            "filmid": "film_id",
+            "collectionid": "collection_id",
+            "status_":"status",
+            "title":"delete",
+            "original_title":"title"
+        }
+
+        for old, new in rename_map.items():
+            if old in self.df.columns:
+                 self.df = self.df.withColumnRenamed(old, new)
+        if "film_id" not in self.df.columns: 
+            self.df = self.df.withColumnRenamed("id", "film_id")
+            #window = Window.orderBy("some_column")  # if wanted the id to be ordered
+            window = Window.orderBy(lit(1))
+            self.df = self.df.withColumn("id", row_number().over(window))
+        if "budget" not in self.df.columns: 
+            self.df = self.df.withColumn("budget", lit(0))
+        if "revenue" not in self.df.columns: 
+            self.df = self.df.withColumn("revenue", lit(0))
+        if "runtime" not in self.df.columns: 
+            self.df = self.df.withColumn("runtime", lit(0))
+        if "ingestion_time" not in self.df.columns: 
+            self.df = self.df.withColumn("ingestion_time", lit(0))
+        if "begin_date" not in self.df.columns: 
+            self.df = self.df.withColumn("begin_date", lit(0))
+        if "end_date" not in self.df.columns: 
+            self.df = self.df.withColumn("end_date", lit(0))
+            
+
+
+
+
