@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from delta import DeltaTable
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
-from pyspark.sql.functions import col, when, lower, regexp_replace, struct, to_timestamp, max as spark_max, lit, coalesce, concat, length, row_number, explode
+from pyspark.sql.functions import col, when, lower, regexp_replace, struct, to_timestamp, max as spark_max, lit, coalesce, concat, length, row_number, explode,  asc, desc as spark_desc, current_timestamp
 from pyspark.sql.types import StructType, StructField, StringType, LongType, TimestampType
 
 class Processer(ABC):
@@ -18,6 +18,10 @@ class Processer(ABC):
     @abstractmethod
     def ensure_schema(self):
         pass
+    
+    @abstractmethod
+    def  merge_with_trusted(self):
+        pass
 
 
     def remove_clear_duplicates(self):
@@ -27,18 +31,23 @@ class Processer(ABC):
         logging.info(f"Removed {initial_count - final_count} simple duplicate(s)")
 
 
-    def remove_hidden_duplicates(self, key_cols, order_cols):
-        window = Window.partitionBy(key_cols).orderBy(order_cols)
-        initial_count = self.df.count()
-        df_columns = [column for column in self.df.columns if column not in key_cols]
+    def remove_hidden_duplicates(self, key_cols, order_cols, desc=False):
+        
+        if desc:
+            window = Window.partitionBy(*key_cols).orderBy(*[spark_desc(col) for col in order_cols])
+        else:
+            window = Window.partitionBy(*key_cols).orderBy(*order_cols)
 
-        self.df = (self.df
-                     .withColumn("row_num", F.row_number().over(window))
-                     .groupBy(key_cols)
-                     .agg(*[
-            F.first(F.col(column), ignorenulls=True).alias(column)
-            for column in df_columns
-        ]))
+        initial_count = self.df.count()
+
+        # Add row number and keep the first per partition
+        self.df = (
+            self.df
+            .withColumn("row_num", F.row_number().over(window))
+            .filter(F.col("row_num") == 1)
+            .drop("row_num")
+        )
+
         final_count = self.df.count()
         logging.info(f"Removed {initial_count - final_count} hidden duplicate(s)")
 
@@ -54,6 +63,38 @@ class Processer(ABC):
         self.df = self.df.orderBy(column, ascending=ascending)
 
 
+
+
+
+class NewsProcessor(Processer):
+    def __init__(self, spark, df):
+        super().__init__(spark, df)
+
+
+    def ensure_schema(self):
+        self.df = (self.df.withColumn("publishedAt",
+                        to_timestamp(col("publishedAt"), "yyyy-MM-dd'T'HH:mm:ssX")))
+
+        self.df = self.df.filter(col("url").isNotNull())
+
+
+
+    def name_to_id(self):
+        self.df = self.df.withColumn(
+            "source",
+            when(
+                col("source.id").isNull(),
+                struct(
+                    regexp_replace(lower(col("source.name")), " ", "-").alias("id"),
+                    col("source.name").alias("name")
+                )
+            ).otherwise(col("source"))
+        )
+
+
+    def expand_source(self):
+        self.df = self.df.withColumn("source", col("source.id"))
+    
     def merge_with_trusted(self, path, key_cols):
         max_ts = (self.spark.read
               .format("delta")
@@ -92,38 +133,6 @@ class Processer(ABC):
         df_new.write.format("delta").mode("append").save(path)
 
         logging.info(f"Adding new {df_new.count()} records")
-
-
-
-
-class NewsProcessor(Processer):
-    def __init__(self, spark, df):
-        super().__init__(spark, df)
-
-
-    def ensure_schema(self):
-        self.df = (self.df.withColumn("publishedAt",
-                        to_timestamp(col("publishedAt"), "yyyy-MM-dd'T'HH:mm:ssX")))
-
-        self.df = self.df.filter(col("url").isNotNull())
-
-
-
-    def name_to_id(self):
-        self.df = self.df.withColumn(
-            "source",
-            when(
-                col("source.id").isNull(),
-                struct(
-                    regexp_replace(lower(col("source.name")), " ", "-").alias("id"),
-                    col("source.name").alias("name")
-                )
-            ).otherwise(col("source"))
-        )
-
-
-    def expand_source(self):
-        self.df = self.df.withColumn("source", col("source.id"))
 
 
 
@@ -215,23 +224,85 @@ class SportsProcessor(Processer):
         self.df = self.df.drop('country_flag', 'country_name')
 
         return countries
+    
+    def merge_with_trusted(self, path, key_cols):
+        max_ts = (self.spark.read
+              .format("delta")
+              .load(path)
+              .select(spark_max(col("publishedAt")).alias("max_ts"))
+                  .collect())[0]["max_ts"]
+
+
+        df_new = self.df.filter(col("publishedAt") > lit(max_ts))
+        df_overlap = self.df.filter(col("publishedAt") <= lit(max_ts))
+
+        delta_table = DeltaTable.forPath(self.spark, path)
+        data_cols = [c for c in df_overlap.columns if c not in key_cols]
+
+        update_expr = {c: coalesce(col(f"overlap.{c}"), col(f"trusted.{c}")) for c in data_cols}
+        init_count = delta_table.toDF().count()
+
+        logging.info("Saving unique records from overlapping ones")
+        (
+            delta_table.alias("trusted")
+            .merge(
+                df_overlap.alias("overlap"),
+                " AND ".join([f"trusted.{k}=overlap.{k}" for k in key_cols])
+            )
+            .whenMatchedUpdate(
+                set=update_expr
+            )
+            .whenNotMatchedInsertAll()
+            .execute()
+        )
+
+        mid_count = delta_table.toDF().count()
+        logging.info(f"Added new {mid_count - init_count} unique records")
+
+        logging.info("Appending non overlapping records")
+        df_new.write.format("delta").mode("append").save(path)
+
+        logging.info(f"Adding new {df_new.count()} records")
 
 
 class TMDBProcessor(Processer):
     def __init__(self, spark, df):
         super().__init__(spark, df)
-
-
+        self.movie_genre_df=  None 
+        self.genre_df = None
+    
+    def set_genre_df(self,df):
+        self.genre_df = df
+        
+    def set_movie_genre_df(self,df):
+        self.movie_genre_df = df
+        
+    def ensure_schema_genres(self):
+        self.genre_df = self.genre_df.toDF(*[c.lower() for c in self.genre_df.columns])
+        self.genre_df= self.genre_df.withColumnRenamed("genreid","genre_id")
+        self.genre_df = self.genre_df.select(["genre_id","genre"])
+        
+    def ensure_schema_movie_genres(self):
+        self.movie_genre_df = self.movie_genre_df.toDF(*[c.lower() for c in self.movie_genre_df.columns])
+        rename_map = {
+            "filmid": "film_id",
+            "genreid": "genre_id"
+        }
+        for old, new in rename_map.items():
+            if old in self.movie_genre_df.columns:
+                 self.movie_genre_df = self.movie_genre_df.withColumnRenamed(old, new)
+        if "ingestion_time" not in self.movie_genre_df.columns:
+            self.movie_genre_df = self.movie_genre_df.withColumn("ingestion_time", current_timestamp())
+        self.movie_genre_df = self.movie_genre_df.select(["film_id","genre_id", "ingestion_time"])
+           
     def ensure_schema(self):
-        cols= ["id", "film_id","title","original_language","overview","release_date","revenue","budget","runtime","adult","popularity","vote_average","vote_count","ingestion_time", "begin_date", "end_date"]
+        cols= ["film_id","title","original_title","original_language","overview","release_date","revenue","budget","runtime","adult","popularity","vote_average","vote_count","ingestion_time"]
         
         self.df = self.df.toDF(*[c.lower() for c in self.df.columns])
         rename_map = {
             "filmid": "film_id",
             "collectionid": "collection_id",
-            "status_":"status",
-            "title":"delete",
-            "original_title":"title"
+            "status_":"status"
         }
 
         for old, new in rename_map.items():
@@ -239,23 +310,52 @@ class TMDBProcessor(Processer):
                  self.df = self.df.withColumnRenamed(old, new)
         if "film_id" not in self.df.columns: 
             self.df = self.df.withColumnRenamed("id", "film_id")
-            #window = Window.orderBy("some_column")  # if wanted the id to be ordered
-            window = Window.orderBy(lit(1))
-            self.df = self.df.withColumn("id", row_number().over(window))
-        if "budget" not in self.df.columns: 
-            self.df = self.df.withColumn("budget", lit(0))
-        if "revenue" not in self.df.columns: 
-            self.df = self.df.withColumn("revenue", lit(0))
-        if "runtime" not in self.df.columns: 
-            self.df = self.df.withColumn("runtime", lit(0))
-        if "ingestion_time" not in self.df.columns: 
-            self.df = self.df.withColumn("ingestion_time", lit(0))
-        if "begin_date" not in self.df.columns: 
-            self.df = self.df.withColumn("begin_date", lit(0))
-        if "end_date" not in self.df.columns: 
-            self.df = self.df.withColumn("end_date", lit(0))
-            
+        for col in cols:
+            if col not in self.df.columns:
+                if col=="ingestion_time":
+                    self.df = self.df.withColumn("ingestion_time", current_timestamp())
+                else:
+                    self.df = self.df.withColumn(col, lit(0))
+         
+        if "genre_ids" in self.df.columns:
+            self.movie_genre_df= self.df.select("film_id", "genre_ids", "ingestion_time").withColumn("genre_id", F.explode("genre_ids")).select("film_id", "genre_id","ingestion_time")
+        self.df = self.df.select(cols)
 
+    def static_dump(self, path):
+        self.df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(path+"/movie")
+        self.movie_genre_df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(path+"/movie_genre")
+        self.genre_df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(path+"/genre")
+    
+    def combine_dfs(self, processor):
+        logging.info(f"Main -  df:{self.df.count()} records | movie_genre:{self.movie_genre_df.count()}")
+        logging.info(f"Processor -  df:{processor.df.count()} records | movie_genre:{processor.movie_genre_df.count()}")
+        self.df = self.df.unionByName(processor.df)
+        self.movie_genre_df=self.movie_genre_df.unionByName(processor.movie_genre_df)
+        logging.info(f"Merged -  df:{self.df.count()} records | movie_genre:{self.movie_genre_df.count()}")
+    
+    def merge_with_trusted(self, path):
+        trusted_df = self.spark.read.format("delta").load(path+"/movie")
+        trusted_mov_gen_df = self.spark.read.format("delta").load(path+"/movie_genre")
+
+        self.df = self.df.unionByName(trusted_df)
+        self.movie_genre_df=self.movie_genre_df.unionByName(trusted_mov_gen_df)
+        
+        self.remove_clear_duplicates()
+        self.remove_hidden_duplicates(['film_id'], ['ingestion_time'], True)
+        
+        window_spec = Window.partitionBy("film_id")
+        # Compute the max timestamp per film_id
+        self.movie_genre_df = self.movie_genre_df.withColumn("max_ts", F.max("ingestion_time").over(window_spec))
+        self.movie_genre_df = self.movie_genre_df.filter(F.col("ingestion_time") == F.col("max_ts")).drop("max_ts")
+        
+        self.df.write.format("delta").mode("overwrite").save(path+"/movie")
+        self.movie_genre_df.write.format("delta").mode("overwrite").save(path+"/movie_genre")
+
+
+
+
+ 
+      
 
 
 
