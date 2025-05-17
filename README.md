@@ -16,14 +16,14 @@ COPY gcs.json gcs/
 ### Setting up Google Cloud
 Set up Google Cloud, we recommend you to follow this [guide](https://delta.io/blog/delta-lake-gcp/),
 which will explain you how to set up a bucket, create a service account and once you have done so you can
-download the key in json format rename it to **gcs.json** and move it inside this folder. 
+download the key in json format rename it to **gcs.json** and move it inside the docker folder. 
 
 Also download the cloud storage connector from
 [here](https://cloud.google.com/dataproc/docs/concepts/connectors/cloud-storage),
-rename it to **gcs-connector-hadoop.jar** and move it in this folder. Or use the following command while inside this folder.
+rename it to **gcs-connector-hadoop.jar** and move it in the docker folder. Or use the following command while inside this folder.
 ```shell
 curl -LfO 'https://storage.googleapis.com/hadoop-lib/gcs/gcs-connector-hadoop3-latest.jar'
-mv gcs-connector-hadoop3-latest.jar gcs-connector-hadoop.jar
+mv gcs-connector-hadoop3-latest.jar docker/gcs-connector-hadoop.jar
 ```
 We've downloaded the "Cloud Storage connector for Hadoop 3.x", which is the latest at the moment of writing.
 
