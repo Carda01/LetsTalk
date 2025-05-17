@@ -4,8 +4,11 @@ from abc import ABC, abstractmethod
 from delta import DeltaTable
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
-from pyspark.sql.functions import col, when, lower, regexp_replace, struct, to_timestamp, max as spark_max, lit, coalesce, concat, length, row_number, explode,  asc, desc as spark_desc, current_timestamp
+from pyspark.sql.functions import col, when, lower, regexp_replace, struct, to_timestamp, max as spark_max, lit, \
+    coalesce, concat, length, row_number, explode, asc, desc as spark_desc, current_timestamp, from_unixtime
 from pyspark.sql.types import StructType, StructField, StringType, LongType, TimestampType
+
+TIMESTAMP_FORMAT = "yyyy-MM-dd'T'HH:mm:ssX"
 
 class Processer(ABC):
 
@@ -18,7 +21,7 @@ class Processer(ABC):
     @abstractmethod
     def ensure_schema(self):
         pass
-    
+
     @abstractmethod
     def  merge_with_trusted(self):
         pass
@@ -32,7 +35,7 @@ class Processer(ABC):
 
 
     def remove_hidden_duplicates(self, key_cols, order_cols, desc=False):
-        
+
         if desc:
             window = Window.partitionBy(*key_cols).orderBy(*[spark_desc(col) for col in order_cols])
         else:
@@ -73,7 +76,7 @@ class NewsProcessor(Processer):
 
     def ensure_schema(self):
         self.df = (self.df.withColumn("publishedAt",
-                        to_timestamp(col("publishedAt"), "yyyy-MM-dd'T'HH:mm:ssX")))
+                                      to_timestamp(col("publishedAt"), TIMESTAMP_FORMAT)))
 
         self.df = self.df.filter(col("url").isNotNull())
 
@@ -94,12 +97,12 @@ class NewsProcessor(Processer):
 
     def expand_source(self):
         self.df = self.df.withColumn("source", col("source.id"))
-    
+
     def merge_with_trusted(self, path, key_cols):
         max_ts = (self.spark.read
-              .format("delta")
-              .load(path)
-              .select(spark_max(col("publishedAt")).alias("max_ts"))
+                  .format("delta")
+                  .load(path)
+                  .select(spark_max(col("publishedAt")).alias("max_ts"))
                   .collect())[0]["max_ts"]
 
 
@@ -138,10 +141,14 @@ class NewsProcessor(Processer):
 class SportsMatchesProcessor(Processer):
     def __init__(self, spark, df):
         super().__init__(spark, df)
-
+        self.teams = None
+        self.venues = None
 
     def ensure_schema(self):
-        pass
+        for column in ['timestamp', 'period_first', 'period_second']:
+            self.df = (self.df.withColumn(column,
+                                          from_unixtime(col(column), TIMESTAMP_FORMAT)))
+
 
     def merge_with_trusted(self, path, key_cols):
         pass
@@ -194,16 +201,22 @@ class SportsMatchesProcessor(Processer):
         )
 
         for column in ['team_away_logo', 'team_away_name', 'team_home_logo', 'team_home_name', 'team_home_winner',
-                        'team_away_winner']:
+                       'team_away_winner']:
             self.df = self.df.drop(column)
 
         self.teams = self.teams.dropDuplicates()
 
 
     def extract_venues(self):
+        self.df = self.df.withColumn("venue_id", regexp_replace(col("venue_name"), ' ', '_'))
         self.venues = self.df.select('venue_id', 'venue_name', 'venue_city')
 
         for column in ['venue_name', 'venue_city']:
+            self.df = self.df.drop(column)
+
+
+    def remove_useless_columns(self):
+        for column in ['timezone', 'status_short']:
             self.df = self.df.drop(column)
 
 
