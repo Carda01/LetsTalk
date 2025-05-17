@@ -135,8 +135,79 @@ class NewsProcessor(Processer):
         logging.info(f"Adding new {df_new.count()} records")
 
 
+class SportsMatchesProcessor(Processer):
+    def __init__(self, spark, df):
+        super().__init__(spark, df)
 
-class SportsProcessor(Processer):
+
+    def ensure_schema(self):
+        pass
+
+    def merge_with_trusted(self, path, key_cols):
+        pass
+
+
+    def expand(self):
+        self.df = (self.df
+                   .withColumn("fixture_date", col("fixture.date"))
+                   .withColumn("fixture_id", col("fixture.id"))
+                   .withColumn("period_first", col("fixture.periods.first"))
+                   .withColumn("period_second", col("fixture.periods.second"))
+                   .withColumn("referee", col("fixture.referee"))
+                   .withColumn("status_elapsed", col("fixture.status.elapsed"))
+                   .withColumn("status_extra", col("fixture.status.extra"))
+                   .withColumn("status_long", col("fixture.status.long"))
+                   .withColumn("status_short", col("fixture.status.short"))
+                   .withColumn("timestamp", col("fixture.timestamp"))
+                   .withColumn("timezone", col("fixture.timezone"))
+                   .withColumn("venue_city", col("fixture.venue.city"))
+                   .withColumn("venue_id", col("fixture.venue.id"))
+                   .withColumn("venue_name", col("fixture.venue.name"))
+                   .withColumn("league", col("league.id"))
+                   .drop('fixture')
+                   .withColumn("team_away_id", col("teams.away.id"))
+                   .withColumn("team_away_logo", col("teams.away.logo"))
+                   .withColumn("team_away_name", col("teams.away.name"))
+                   .withColumn("team_away_winner", col("teams.away.winner"))
+                   .withColumn("team_home_id", col("teams.home.id"))
+                   .withColumn("team_home_logo", col("teams.home.logo"))
+                   .withColumn("team_home_name", col("teams.home.name"))
+                   .withColumn("team_home_winner", col("teams.home.winner"))
+                   .drop('teams')
+                   .withColumn("goals_away", col("goals.away"))
+                   .withColumn("goals_home", col("goals.home"))
+                   .drop("goals")
+                   .drop("score")
+                   )
+
+
+    def extract_teams(self):
+        self.teams = self.df.select('team_away_id', 'team_away_logo', 'team_away_name') \
+            .withColumnRenamed('team_away_id', 'team_id') \
+            .withColumnRenamed('team_away_logo', 'team_logo') \
+            .withColumnRenamed('team_away_name', 'team_name') \
+            .union(
+            self.df.select('team_home_id', 'team_home_logo', 'team_home_name') \
+                .withColumnRenamed('team_home_id', 'team_id') \
+                .withColumnRenamed('team_home_logo', 'team_logo') \
+                .withColumnRenamed('team_home_name', 'team_name')
+        )
+
+        for column in ['team_away_logo', 'team_away_name', 'team_home_logo', 'team_home_name', 'team_home_winner',
+                        'team_away_winner']:
+            self.df = self.df.drop(column)
+
+        self.teams = self.teams.dropDuplicates()
+
+
+    def extract_venues(self):
+        self.venues = self.df.select('venue_id', 'venue_name', 'venue_city')
+
+        for column in ['venue_name', 'venue_city']:
+            self.df = self.df.drop(column)
+
+
+class SportsLeagueProcessor(Processer):
     def __init__(self, spark, df):
         super().__init__(spark, df)
 
@@ -147,33 +218,33 @@ class SportsProcessor(Processer):
 
     def expand(self):
         self.df = (self.df
-         .withColumn('league-info', explode("seasons")).drop("seasons")
-         .withColumn('league-info_current', col('league-info.current'))
-         .withColumn('league-info_end', col('league-info.end'))
-         .withColumn('league-info_start', col('league-info.start'))
-         .withColumn('league-info_year', col('league-info.year'))
-         .withColumn('coverage', col('league-info.coverage'))
-         .drop('league-info')
-         .withColumn('coverage_injuries', col('coverage.injuries'))
-         .withColumn('coverage_odds', col('coverage.odds'))
-         .withColumn('coverage_players', col('coverage.players'))
-         .withColumn('coverage_predictions', col('coverage.predictions'))
-         .withColumn('coverage_standings', col('coverage.standings'))
-         .withColumn('coverage_top_assists', col('coverage.top_assists'))
-         .withColumn('coverage_top_cards', col('coverage.top_cards'))
-         .withColumn('coverage_top_scorers', col('coverage.top_scorers'))
-         .withColumn('fixtures', col('coverage.fixtures'))
-         .drop('coverage')
-         .withColumn('fixture_events', col('fixtures.events'))
-         .withColumn('fixture_lineups', col('fixtures.lineups'))
-         .withColumn('fixture_statistics_fixtures', col('fixtures.statistics_fixtures'))
-         .withColumn('fixture_statistics_players', col('fixtures.statistics_players'))
-         .drop('fixtures')
+                   .withColumn('league-info', explode("seasons")).drop("seasons")
+                   .withColumn('league-info_current', col('league-info.current'))
+                   .withColumn('league-info_end', col('league-info.end'))
+                   .withColumn('league-info_start', col('league-info.start'))
+                   .withColumn('league-info_year', col('league-info.year'))
+                   .withColumn('coverage', col('league-info.coverage'))
+                   .drop('league-info')
+                   .withColumn('coverage_injuries', col('coverage.injuries'))
+                   .withColumn('coverage_odds', col('coverage.odds'))
+                   .withColumn('coverage_players', col('coverage.players'))
+                   .withColumn('coverage_predictions', col('coverage.predictions'))
+                   .withColumn('coverage_standings', col('coverage.standings'))
+                   .withColumn('coverage_top_assists', col('coverage.top_assists'))
+                   .withColumn('coverage_top_cards', col('coverage.top_cards'))
+                   .withColumn('coverage_top_scorers', col('coverage.top_scorers'))
+                   .withColumn('fixtures', col('coverage.fixtures'))
+                   .drop('coverage')
+                   .withColumn('fixture_events', col('fixtures.events'))
+                   .withColumn('fixture_lineups', col('fixtures.lineups'))
+                   .withColumn('fixture_statistics_fixtures', col('fixtures.statistics_fixtures'))
+                   .withColumn('fixture_statistics_players', col('fixtures.statistics_players'))
+                   .drop('fixtures')
                    )
 
     def generate_leagues(self):
         self.df = (self.df
-              .withColumn('league_id', col('league.id'))
+                   .withColumn('league_id', col('league.id'))
                    .withColumn('league_logo', col('league.logo'))
                    .withColumn('league_name', lower(col('league.name')))
                    .withColumn('league_type', lower(col('league.type')))
@@ -192,8 +263,8 @@ class SportsProcessor(Processer):
 
     def generate_countries(self):
         self.df = self.df.withColumn('country_code',
-                            when(lower(col('country.name')) == 'world', "wrd")
-                            .otherwise(lower(col('country.code')))) \
+                                     when(lower(col('country.name')) == 'world', "wrd")
+                                     .otherwise(lower(col('country.code')))) \
             .withColumn('country_name',
                         lower(col('country.name'))) \
             .withColumn('country_flag',
@@ -204,7 +275,7 @@ class SportsProcessor(Processer):
         if null_codes.count() > 0:
             logging.warning(f'There are null country codes (apart from World) {null_codes.collect()}, setting them to their name, if that is also null, they will be removed')
             self.df = self.df.withColumn('country_code',
-                                 when(col('country_code').isNull(), col('country_name')).otherwise(col('country_code')))
+                                         when(col('country_code').isNull(), col('country_name')).otherwise(col('country_code')))
             self.df = self.df.dropna(subset=['country_code'])
 
 
@@ -215,21 +286,21 @@ class SportsProcessor(Processer):
             logging.warning("Some countries have the same code: {}\n Changing code, but probably a manual check could be needed".format(repeated_countries))
 
             self.df = self.df.withColumn('country_code',
-                                 when(col('country_code').isin(repeated_countries),
-                                      concat(col('country_code'), lit("-"), col('country_name'))
-                                      ).otherwise(col('country_code')))
+                                         when(col('country_code').isin(repeated_countries),
+                                              concat(col('country_code'), lit("-"), col('country_name'))
+                                              ).otherwise(col('country_code')))
 
 
         countries = self.df.select('country_code', 'country_name', 'country_flag').distinct()
         self.df = self.df.drop('country_flag', 'country_name')
 
         return countries
-    
+
     def merge_with_trusted(self, path, key_cols):
         max_ts = (self.spark.read
-              .format("delta")
-              .load(path)
-              .select(spark_max(col("publishedAt")).alias("max_ts"))
+                  .format("delta")
+                  .load(path)
+                  .select(spark_max(col("publishedAt")).alias("max_ts"))
                   .collect())[0]["max_ts"]
 
 
@@ -268,20 +339,20 @@ class SportsProcessor(Processer):
 class TMDBProcessor(Processer):
     def __init__(self, spark, df):
         super().__init__(spark, df)
-        self.movie_genre_df=  None 
+        self.movie_genre_df=  None
         self.genre_df = None
-    
+
     def set_genre_df(self,df):
         self.genre_df = df
-        
+
     def set_movie_genre_df(self,df):
         self.movie_genre_df = df
-        
+
     def ensure_schema_genres(self):
         self.genre_df = self.genre_df.toDF(*[c.lower() for c in self.genre_df.columns])
         self.genre_df= self.genre_df.withColumnRenamed("genreid","genre_id")
         self.genre_df = self.genre_df.select(["genre_id","genre"])
-        
+
     def ensure_schema_movie_genres(self):
         self.movie_genre_df = self.movie_genre_df.toDF(*[c.lower() for c in self.movie_genre_df.columns])
         rename_map = {
@@ -290,14 +361,14 @@ class TMDBProcessor(Processer):
         }
         for old, new in rename_map.items():
             if old in self.movie_genre_df.columns:
-                 self.movie_genre_df = self.movie_genre_df.withColumnRenamed(old, new)
+                self.movie_genre_df = self.movie_genre_df.withColumnRenamed(old, new)
         if "ingestion_time" not in self.movie_genre_df.columns:
             self.movie_genre_df = self.movie_genre_df.withColumn("ingestion_time", current_timestamp())
         self.movie_genre_df = self.movie_genre_df.select(["film_id","genre_id", "ingestion_time"])
-           
+
     def ensure_schema(self):
         cols= ["film_id","title","original_title","original_language","overview","release_date","revenue","budget","runtime","adult","popularity","vote_average","vote_count","ingestion_time"]
-        
+
         self.df = self.df.toDF(*[c.lower() for c in self.df.columns])
         rename_map = {
             "filmid": "film_id",
@@ -307,8 +378,8 @@ class TMDBProcessor(Processer):
 
         for old, new in rename_map.items():
             if old in self.df.columns:
-                 self.df = self.df.withColumnRenamed(old, new)
-        if "film_id" not in self.df.columns: 
+                self.df = self.df.withColumnRenamed(old, new)
+        if "film_id" not in self.df.columns:
             self.df = self.df.withColumnRenamed("id", "film_id")
         for col in cols:
             if col not in self.df.columns:
@@ -316,7 +387,7 @@ class TMDBProcessor(Processer):
                     self.df = self.df.withColumn("ingestion_time", current_timestamp())
                 else:
                     self.df = self.df.withColumn(col, lit(0))
-         
+
         if "genre_ids" in self.df.columns:
             self.movie_genre_df= self.df.select("film_id", "genre_ids", "ingestion_time").withColumn("genre_id", F.explode("genre_ids")).select("film_id", "genre_id","ingestion_time")
         self.df = self.df.select(cols)
@@ -325,29 +396,29 @@ class TMDBProcessor(Processer):
         self.df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(path+"/movie")
         self.movie_genre_df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(path+"/movie_genre")
         self.genre_df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(path+"/genre")
-    
+
     def combine_dfs(self, processor):
         logging.info(f"Main -  df:{self.df.count()} records | movie_genre:{self.movie_genre_df.count()}")
         logging.info(f"Processor -  df:{processor.df.count()} records | movie_genre:{processor.movie_genre_df.count()}")
         self.df = self.df.unionByName(processor.df)
         self.movie_genre_df=self.movie_genre_df.unionByName(processor.movie_genre_df)
         logging.info(f"Merged -  df:{self.df.count()} records | movie_genre:{self.movie_genre_df.count()}")
-    
+
     def merge_with_trusted(self, path):
         trusted_df = self.spark.read.format("delta").load(path+"/movie")
         trusted_mov_gen_df = self.spark.read.format("delta").load(path+"/movie_genre")
 
         self.df = self.df.unionByName(trusted_df)
         self.movie_genre_df=self.movie_genre_df.unionByName(trusted_mov_gen_df)
-        
+
         self.remove_clear_duplicates()
         self.remove_hidden_duplicates(['film_id'], ['ingestion_time'], True)
-        
+
         window_spec = Window.partitionBy("film_id")
         # Compute the max timestamp per film_id
         self.movie_genre_df = self.movie_genre_df.withColumn("max_ts", F.max("ingestion_time").over(window_spec))
         self.movie_genre_df = self.movie_genre_df.filter(F.col("ingestion_time") == F.col("max_ts")).drop("max_ts")
-        
+
         self.df.write.format("delta").mode("overwrite").save(path+"/movie")
         self.movie_genre_df.write.format("delta").mode("overwrite").save(path+"/movie_genre")
 
