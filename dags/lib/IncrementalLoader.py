@@ -90,7 +90,6 @@ class IncrementalLoader:
     def get_new_data(self):
         last_processed_version = self.get_last_processed_version()
         delta_table = DeltaTable.forPath(self.spark, self.landing_path)
-
         cdf_enabled = is_cdf_enabled(delta_table)
         latest_version = self.get_latest_version()
 
