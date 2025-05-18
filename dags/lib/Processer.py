@@ -1,4 +1,4 @@
-import logging
+import logging, os, sys
 from abc import ABC, abstractmethod
 
 from delta import DeltaTable
@@ -6,14 +6,17 @@ from pyspark.sql import functions as F
 from pyspark.sql.window import Window
 from pyspark.sql.functions import col, when, lower, regexp_replace, struct, to_timestamp, max as spark_max, lit, \
     coalesce, concat, length, row_number, explode, asc, desc as spark_desc, current_timestamp, from_unixtime
+from datetime import datetime
 from pyspark.sql.types import StructType, StructField, StringType, LongType, TimestampType
 
 TIMESTAMP_FORMAT = "yyyy-MM-dd'T'HH:mm:ssX"
 
+
+
 class Processer(ABC):
 
     def __init__(self, spark, df):
-        logging.basicConfig(level=logging.INFO)
+        logging.basicConfig(level=logging.INFO, handlers=[logging.StreamHandler(sys.stdout)])
         self.spark = spark
         self.df = df
 
@@ -99,43 +102,47 @@ class NewsProcessor(Processer):
         self.df = self.df.withColumn("source", col("source.id"))
 
     def merge_with_trusted(self, path, key_cols):
-        max_ts = (self.spark.read
-                  .format("delta")
-                  .load(path)
-                  .select(spark_max(col("publishedAt")).alias("max_ts"))
-                  .collect())[0]["max_ts"]
+        if os.path.exists(path):
+            max_ts = (self.spark.read
+                      .format("delta")
+                      .load(path)
+                      .select(spark_max(col("publishedAt")).alias("max_ts"))
+                      .collect())[0]["max_ts"]
 
+            df_new = self.df.filter(col("publishedAt") > lit(max_ts))
+            df_overlap = self.df.filter(col("publishedAt") <= lit(max_ts))
+        
+            delta_table = DeltaTable.forPath(self.spark, path)
+            data_cols = [c for c in df_overlap.columns if c not in key_cols]
 
-        df_new = self.df.filter(col("publishedAt") > lit(max_ts))
-        df_overlap = self.df.filter(col("publishedAt") <= lit(max_ts))
+            update_expr = {c: coalesce(col(f"overlap.{c}"), col(f"trusted.{c}")) for c in data_cols}
+            init_count = delta_table.toDF().count()
 
-        delta_table = DeltaTable.forPath(self.spark, path)
-        data_cols = [c for c in df_overlap.columns if c not in key_cols]
-
-        update_expr = {c: coalesce(col(f"overlap.{c}"), col(f"trusted.{c}")) for c in data_cols}
-        init_count = delta_table.toDF().count()
-
-        logging.info("Saving unique records from overlapping ones")
-        (
-            delta_table.alias("trusted")
-            .merge(
-                df_overlap.alias("overlap"),
-                " AND ".join([f"trusted.{k}=overlap.{k}" for k in key_cols])
+            logging.info("Saving unique records from overlapping ones")
+            (
+                delta_table.alias("trusted")
+                .merge(
+                    df_overlap.alias("overlap"),
+                    " AND ".join([f"trusted.{k}=overlap.{k}" for k in key_cols])
+                )
+                .whenMatchedUpdate(
+                    set=update_expr
+                )
+                .whenNotMatchedInsertAll()
+                .execute()
             )
-            .whenMatchedUpdate(
-                set=update_expr
-            )
-            .whenNotMatchedInsertAll()
-            .execute()
-        )
 
-        mid_count = delta_table.toDF().count()
-        logging.info(f"Added new {mid_count - init_count} unique records")
+            mid_count = delta_table.toDF().count()
+            logging.info(f"Added new {mid_count - init_count} unique records")
 
-        logging.info("Appending non overlapping records")
-        df_new.write.format("delta").mode("append").save(path)
+            logging.info("Appending non overlapping records")
+            df_new.write.format("delta").mode("append").save(path)
 
-        logging.info(f"Adding new {df_new.count()} records")
+            logging.info(f"Adding new {df_new.count()} records")
+
+        else:
+            self.df.write.format("delta").mode("append").save(path)
+            logging.info(f"Adding new {self.df.count()} records")
 
 
 class SportsMatchesProcessor(Processer):
