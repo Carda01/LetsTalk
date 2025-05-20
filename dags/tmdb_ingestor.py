@@ -1,5 +1,5 @@
 import os, logging
-from lib.utils import get_spark_and_path
+from lib.old_utils import get_spark_and_path
 from datetime import datetime
 import kagglehub
 from kagglehub import KaggleDatasetAdapter

@@ -1,6 +1,6 @@
 import json, os, tempfile, logging, requests
 from datetime import datetime
-from lib.utils import get_spark_and_path, get_null_percentage
+from lib.old_utils import get_spark_and_path, get_null_percentage
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator

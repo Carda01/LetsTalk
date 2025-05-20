@@ -2,7 +2,7 @@ import json, datetime, os, tempfile, logging, requests
 from datetime import datetime
 from pyspark.sql.functions import current_timestamp
 
-from lib.utils import get_spark_and_path, get_null_percentage
+from lib.old_utils import get_spark_and_path, get_null_percentage
 from airflow import DAG
 from pyspark.sql.functions import lit
 from airflow.operators.python import PythonOperator
