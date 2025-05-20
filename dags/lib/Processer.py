@@ -1,12 +1,12 @@
 import logging, os, sys
 from abc import ABC, abstractmethod
-from pt_utils import merge_elements
+from dags.lib.pt_utils import merge_elements
 
 from delta import DeltaTable
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
 from pyspark.sql.functions import col, when, lower, regexp_replace, struct, to_timestamp, max as spark_max, lit, \
-    coalesce, concat, length, row_number, explode, asc, desc as spark_desc, current_timestamp, from_unixtime
+    coalesce, concat, length, row_number, explode, current_timestamp, from_unixtime
 from datetime import datetime
 from pyspark.sql.types import StructType, StructField, StringType, LongType, TimestampType
 
