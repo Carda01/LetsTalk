@@ -3,6 +3,9 @@ from pyspark.sql import Row
 from datetime import datetime
 import os
 from delta import *
+from lib.pt_utils import get_logger
+
+logging = get_logger()
 
 def get_control_table_schema():
     return StructType([
@@ -96,7 +99,7 @@ class IncrementalLoader:
         use_cdf = cdf_enabled and does_cdf_make_sense(delta_table, last_processed_version)
 
         if use_cdf:
-            print(f"Using CDF from version {last_processed_version}")
+            logging.info(f"Using CDF from version {last_processed_version}")
             df = self.spark.read.format("delta") \
                 .option("readChangeData", "true") \
                 .option("startingVersion", str(last_processed_version)) \
@@ -105,7 +108,7 @@ class IncrementalLoader:
                 .filter("_change_type = 'insert'")
             df = df.drop("_change_type", "_commit_version", "_commit_timestamp")
         else:
-            print("CDF not available — doing full load")
+            logging.info("CDF not available — doing full load")
             if not cdf_enabled:
                 self.enable_cdf()
             latest_version = self.get_latest_version()

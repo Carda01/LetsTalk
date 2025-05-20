@@ -1,6 +1,6 @@
-import logging, os, sys
+import os, sys
 from abc import ABC, abstractmethod
-from dags.lib.pt_utils import merge_elements
+from lib.pt_utils import merge_elements, get_logger
 
 from delta import DeltaTable
 from pyspark.sql import functions as F
@@ -12,12 +12,41 @@ from pyspark.sql.types import StructType, StructField, StringType, LongType, Tim
 
 TIMESTAMP_FORMAT = "yyyy-MM-dd'T'HH:mm:ssX"
 
+logging = get_logger()
+
+def basic_merge_with_trusted(self, path, key_cols):
+    if os.path.exists(path):
+        delta_table = DeltaTable.forPath(self.spark, path)
+        data_cols = [c for c in self.df.columns if c not in key_cols]
+
+        update_expr = {c: coalesce(col(f"overlap.{c}"), col(f"trusted.{c}")) for c in data_cols}
+        init_count = delta_table.toDF().count()
+
+        logging.info("Saving unique records from overlapping ones")
+        (
+            delta_table.alias("trusted")
+            .merge(
+                self.df.alias("overlap"),
+                " AND ".join([f"trusted.{k}=overlap.{k}" for k in key_cols])
+            )
+            .whenMatchedUpdate(
+                set=update_expr
+            )
+            .whenNotMatchedInsertAll()
+            .execute()
+        )
+
+        final_count = delta_table.toDF().count()
+        logging.info(f"Added new {final_count - init_count} unique records")
+
+    else:
+        self.df.write.format("delta").mode("append").save(path)
+        logging.info(f"Adding new {self.df.count()} records")
 
 
 class Processer(ABC):
 
     def __init__(self, spark, df):
-        logging.basicConfig(level=logging.INFO, handlers=[logging.StreamHandler(sys.stdout)])
         self.spark = spark
         self.df = df
 
@@ -27,7 +56,7 @@ class Processer(ABC):
         pass
 
     @abstractmethod
-    def  merge_with_trusted(self):
+    def merge_with_trusted(self, path, key_cols):
         pass
 
 
@@ -55,8 +84,6 @@ class Processer(ABC):
 
     def order_by(self, column, ascending=True):
         self.df = self.df.orderBy(column, ascending=ascending)
-
-
 
 
 

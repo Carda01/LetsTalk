@@ -1,9 +1,19 @@
-import pyspark, os, logging
+import pyspark, os, logging, sys
 from delta import configure_spark_with_delta_pip
 from pyspark.sql import functions as F
 from functools import reduce
 from pyspark.sql.window import Window
 from pyspark.sql.functions import desc as spark_desc
+
+def get_logger():
+    logging.basicConfig(
+        stream=sys.stdout,
+        level=logging.INFO,
+    )
+
+    return logging.getLogger(__name__)
+
+logger = get_logger()
 
 def get_landing_path(path):
     return os.path.join(path, 'letstalk_landing_zone_bdma')
@@ -15,17 +25,17 @@ def get_explotation_path(path):
     return os.path.join(path, 'letstalk_explotation_zone_bdma')
 
 def get_spark_and_path(is_gcs_enabled):
-    logging.info(is_gcs_enabled)
+    logger.info(is_gcs_enabled)
     if is_gcs_enabled == "True":
-        logging.info(is_gcs_enabled)
+        logger.info(is_gcs_enabled)
         spark = create_spark_gcs_session()
         delta_table_base_path = "gs://"
     else:
-        logging.info(is_gcs_enabled)
+        logger.info(is_gcs_enabled)
         spark = create_spark_local_session()
         delta_table_base_path = "/data"
 
-    logging.info(is_gcs_enabled)
+    logger.info(is_gcs_enabled)
     return spark, delta_table_base_path
 
 
