@@ -1,6 +1,6 @@
 import json, os, tempfile, logging
 from newsapi import NewsApiClient
-from lib.new_utils import get_spark_and_path, get_null_percentage
+from lib.pt_utils import get_spark_and_path, get_null_percentage
 
 CATEGORIES = ['entertainment', 'sports', 'technology']
 

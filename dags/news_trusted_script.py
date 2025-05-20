@@ -1,5 +1,5 @@
 import os
-from lib.new_utils import *
+from lib.pt_utils import *
 from lib.IncrementalLoader import IncrementalLoader
 from lib.Processer import NewsProcessor
 

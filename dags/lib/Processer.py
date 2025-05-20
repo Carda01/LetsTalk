@@ -1,5 +1,6 @@
 import logging, os, sys
 from abc import ABC, abstractmethod
+from pt_utils import merge_elements
 
 from delta import DeltaTable
 from pyspark.sql import functions as F
@@ -37,24 +38,11 @@ class Processer(ABC):
         logging.info(f"Removed {initial_count - final_count} simple duplicate(s)")
 
 
-    def remove_hidden_duplicates(self, key_cols, order_cols, desc=False):
-
-        if desc:
-            window = Window.partitionBy(*key_cols).orderBy(*[spark_desc(col) for col in order_cols])
-        else:
-            window = Window.partitionBy(*key_cols).orderBy(*order_cols)
-
+    def remove_hidden_duplicates(self, key_cols, order_cols=None, desc=False):
         initial_count = self.df.count()
-
-        # Add row number and keep the first per partition
-        self.df = (
-            self.df
-            .withColumn("row_num", F.row_number().over(window))
-            .filter(F.col("row_num") == 1)
-            .drop("row_num")
-        )
-
+        self.df = merge_elements(self.df, key_cols, order_cols, desc)
         final_count = self.df.count()
+
         logging.info(f"Removed {initial_count - final_count} hidden duplicate(s)")
 
 

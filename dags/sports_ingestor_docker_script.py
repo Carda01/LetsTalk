@@ -1,6 +1,6 @@
 import json, os, tempfile, logging, requests
 from datetime import datetime
-from lib.new_utils import get_spark_and_path, get_null_percentage
+from lib.pt_utils import get_spark_and_path, get_null_percentage
 
 from pyspark.sql.types import *
 
