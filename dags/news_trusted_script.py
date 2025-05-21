@@ -25,7 +25,6 @@ for category in CATEGORIES:
 
     processor = NewsProcessor(spark, df)
 
-    logging.info("Begin processing")
     logging.info(processor.df.show(3))
     logging.info(f"Processing {processor.df.count()} elements")
     processor.ensure_schema()
@@ -37,10 +36,10 @@ for category in CATEGORIES:
     processor.order_by('publishedAt', ascending=False)
 
     logging.info("End processing")
-    logging.info(processor.df.head(3))
+    logging.info(processor.df.show(3))
 
     save_path = os.path.join(trusted_path, table_subpath)
-    processor.merge_with_trusted(trusted_path, table_subpath, ['url'], is_gcs_enabled)
+    processor.merge_with_trusted(trusted_path, table_subpath, ['url'])
     loader.update_control_table()
 
 

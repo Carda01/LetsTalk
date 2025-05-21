@@ -19,11 +19,11 @@ def path_exists(bucket_path, table_path, is_gcs_enabled):
     return (not is_gcs_enabled and os.path.exists(path)) or (is_gcs_enabled and gcs_path_exists(bucket_path, table_path))
 
 
-def basic_merge_with_trusted(self, bucket_path, table_path, key_cols, is_gcs_enabled):
+def basic_merge_with_trusted(df, spark, bucket_path, table_path, key_cols, is_gcs_enabled):
     path = os.path.join(bucket_path, table_path)
     if path_exists(bucket_path, table_path, is_gcs_enabled):
-        delta_table = DeltaTable.forPath(self.spark, path)
-        data_cols = [c for c in self.df.columns if c not in key_cols]
+        delta_table = DeltaTable.forPath(spark, path)
+        data_cols = [c for c in df.columns if c not in key_cols]
 
         update_expr = {c: coalesce(col(f"overlap.{c}"), col(f"trusted.{c}")) for c in data_cols}
         init_count = delta_table.toDF().count()
@@ -32,7 +32,7 @@ def basic_merge_with_trusted(self, bucket_path, table_path, key_cols, is_gcs_ena
         (
             delta_table.alias("trusted")
             .merge(
-                self.df.alias("overlap"),
+                df.alias("overlap"),
                 " AND ".join([f"trusted.{k}=overlap.{k}" for k in key_cols])
             )
             .whenMatchedUpdate(
@@ -43,18 +43,19 @@ def basic_merge_with_trusted(self, bucket_path, table_path, key_cols, is_gcs_ena
         )
 
         final_count = delta_table.toDF().count()
-        logging.info(f"Added new {final_count - init_count} unique records")
+        logging.info(f"Added new {final_count - init_count} unique records to table at path {path}")
 
     else:
-        self.df.write.format("delta").mode("append").save(path)
-        logging.info(f"Adding new {self.df.count()} records")
+        df.write.format("delta").mode("append").save(path)
+        logging.info(f"Adding new {df.count()} records to table at path {path}")
 
 
 class Processer(ABC):
 
-    def __init__(self, spark, df):
+    def __init__(self, spark, df, is_gcs_enabled = False):
         self.spark = spark
         self.df = df
+        self.is_gcs_enabled = is_gcs_enabled
 
 
     @abstractmethod
@@ -62,7 +63,7 @@ class Processer(ABC):
         pass
 
     @abstractmethod
-    def merge_with_trusted(self, path, key_cols):
+    def merge_with_trusted(self, bucket_path, table_path, key_cols):
         pass
 
 
@@ -94,8 +95,8 @@ class Processer(ABC):
 
 
 class NewsProcessor(Processer):
-    def __init__(self, spark, df):
-        super().__init__(spark, df)
+    def __init__(self, spark, df, is_gcs_enabled = False):
+        super().__init__(spark, df, is_gcs_enabled)
 
 
     def ensure_schema(self):
@@ -122,9 +123,9 @@ class NewsProcessor(Processer):
     def expand_source(self):
         self.df = self.df.withColumn("source", col("source.id"))
 
-    def merge_with_trusted(self, bucket_path, table_path, key_cols, is_gcs_enabled):
+    def merge_with_trusted(self, bucket_path, table_path, key_cols):
         path = os.path.join(bucket_path, table_path)
-        if path_exists(bucket_path, table_path, is_gcs_enabled):
+        if path_exists(bucket_path, table_path, self.is_gcs_enabled):
             max_ts = (self.spark.read
                       .format("delta")
                       .load(path)
@@ -168,8 +169,8 @@ class NewsProcessor(Processer):
 
 
 class SportsMatchesProcessor(Processer):
-    def __init__(self, spark, df):
-        super().__init__(spark, df)
+    def __init__(self, spark, df, is_gcs_enabled = False):
+        super().__init__(spark, df, is_gcs_enabled)
         self.teams = None
         self.venues = None
 
@@ -179,8 +180,55 @@ class SportsMatchesProcessor(Processer):
                                           from_unixtime(col(column), TIMESTAMP_FORMAT)))
 
 
-    def merge_with_trusted(self, path, key_cols):
-        pass
+    def merge_with_trusted(self, bucket_path, table_path, key_cols):
+        basic_merge_with_trusted(self.teams, self.spark, bucket_path, os.path.join(table_path, 'teams'), ['team_id'], self.is_gcs_enabled)
+        basic_merge_with_trusted(self.venues, self.spark, bucket_path, os.path.join(table_path, 'venues'), ['venue_id'], self.is_gcs_enabled)
+
+        ### Merge matches ###
+        table_path = os.path.join(table_path, 'matches')
+        path = os.path.join(bucket_path, table_path)
+        if path_exists(bucket_path, table_path, self.is_gcs_enabled):
+            max_ts = (self.spark.read
+                      .format("delta")
+                      .load(path)
+                      .select(spark_max(col("timestamp")).alias("max_ts"))
+                      .collect())[0]["max_ts"]
+
+            df_new = self.df.filter(col("timestamp") > lit(max_ts))
+            df_overlap = self.df.filter(col("timestamp") <= lit(max_ts))
+
+            delta_table = DeltaTable.forPath(self.spark, path)
+            data_cols = [c for c in df_overlap.columns if c not in key_cols]
+
+            update_expr = {c: coalesce(col(f"overlap.{c}"), col(f"trusted.{c}")) for c in data_cols}
+            init_count = delta_table.toDF().count()
+
+            logging.info("Saving unique records from overlapping ones")
+            (
+                delta_table.alias("trusted")
+                .merge(
+                    df_overlap.alias("overlap"),
+                    " AND ".join([f"trusted.{k}=overlap.{k}" for k in key_cols])
+                )
+                .whenMatchedUpdate(
+                    set=update_expr
+                )
+                .whenNotMatchedInsertAll()
+                .execute()
+            )
+
+            mid_count = delta_table.toDF().count()
+            logging.info(f"Added new {mid_count - init_count} unique records")
+
+            logging.info("Appending non overlapping records")
+            df_new.write.format("delta").mode("append").save(path)
+
+            logging.info(f"Adding new {df_new.count()} records")
+
+        else:
+            self.df.write.format("delta").mode("append").save(path)
+            logging.info(f"Adding new {self.df.count()} records")
+
 
 
     def expand(self):
@@ -234,14 +282,22 @@ class SportsMatchesProcessor(Processer):
             self.df = self.df.drop(column)
 
         self.teams = self.teams.dropDuplicates()
+        self.teams = merge_elements(self.teams, ['team_id'])
 
 
     def extract_venues(self):
-        self.df = self.df.withColumn("venue_id", regexp_replace(col("venue_name"), ' ', '_'))
+        self.df = self.df.withColumn(
+            "venue_id",
+            when(col('venue_name').isNull(), 'unknown')
+            .otherwise(regexp_replace(col("venue_name"), ' ', '_')))
         self.venues = self.df.select('venue_id', 'venue_name', 'venue_city')
 
         for column in ['venue_name', 'venue_city']:
             self.df = self.df.drop(column)
+
+        self.venues = merge_elements(self.venues, ['venue_id'])
+        self.venues = self.venues.dropDuplicates()
+
 
 
     def remove_useless_columns(self):
@@ -250,8 +306,10 @@ class SportsMatchesProcessor(Processer):
 
 
 class SportsLeagueProcessor(Processer):
-    def __init__(self, spark, df):
-        super().__init__(spark, df)
+    def __init__(self, spark, df, is_gcs_enabled = False):
+        super().__init__(spark, df, is_gcs_enabled)
+        self.leagues = None
+        self.countries = None
 
 
     def ensure_schema(self):
@@ -296,11 +354,11 @@ class SportsLeagueProcessor(Processer):
         leagues = self.df.select('league_id', 'country_code', 'league_name', 'league_type', 'league_logo').distinct()
 
         leagues = leagues.withColumn("row_num", row_number().over(window_spec))
-        leagues = leagues.filter(col('row_num') == 1).drop("row_num")
+        self.leagues = leagues.filter(col('row_num') == 1).drop("row_num")
 
         self.df = self.df.drop('league_name', 'league_logo', 'league_type', 'country_code')
 
-        return leagues
+        return self.leagues
 
 
     def generate_countries(self):
@@ -333,54 +391,20 @@ class SportsLeagueProcessor(Processer):
                                               ).otherwise(col('country_code')))
 
 
-        countries = self.df.select('country_code', 'country_name', 'country_flag').distinct()
+        self.countries = self.df.select('country_code', 'country_name', 'country_flag').distinct()
         self.df = self.df.drop('country_flag', 'country_name')
 
-        return countries
-
-    def merge_with_trusted(self, path, key_cols):
-        max_ts = (self.spark.read
-                  .format("delta")
-                  .load(path)
-                  .select(spark_max(col("publishedAt")).alias("max_ts"))
-                  .collect())[0]["max_ts"]
+        return self.countries
 
 
-        df_new = self.df.filter(col("publishedAt") > lit(max_ts))
-        df_overlap = self.df.filter(col("publishedAt") <= lit(max_ts))
-
-        delta_table = DeltaTable.forPath(self.spark, path)
-        data_cols = [c for c in df_overlap.columns if c not in key_cols]
-
-        update_expr = {c: coalesce(col(f"overlap.{c}"), col(f"trusted.{c}")) for c in data_cols}
-        init_count = delta_table.toDF().count()
-
-        logging.info("Saving unique records from overlapping ones")
-        (
-            delta_table.alias("trusted")
-            .merge(
-                df_overlap.alias("overlap"),
-                " AND ".join([f"trusted.{k}=overlap.{k}" for k in key_cols])
-            )
-            .whenMatchedUpdate(
-                set=update_expr
-            )
-            .whenNotMatchedInsertAll()
-            .execute()
-        )
-
-        mid_count = delta_table.toDF().count()
-        logging.info(f"Added new {mid_count - init_count} unique records")
-
-        logging.info("Appending non overlapping records")
-        df_new.write.format("delta").mode("append").save(path)
-
-        logging.info(f"Adding new {df_new.count()} records")
+    def merge_with_trusted(self, bucket_path, table_path, key_cols = None):
+        basic_merge_with_trusted(self.leagues, self.spark, bucket_path, os.path.join(table_path, 'leagues'), ['league_id'], self.is_gcs_enabled)
+        basic_merge_with_trusted(self.countries, self.spark, bucket_path, os.path.join(table_path, 'countries'), ['country_code'], self.is_gcs_enabled)
 
 
 class TMDBProcessor(Processer):
-    def __init__(self, spark, df):
-        super().__init__(spark, df)
+    def __init__(self, spark, df, is_gcs_enabled = False):
+        super().__init__(spark, df, is_gcs_enabled)
         self.movie_genre_df=  None
         self.genre_df = None
 
@@ -446,6 +470,8 @@ class TMDBProcessor(Processer):
         self.movie_genre_df=self.movie_genre_df.unionByName(processor.movie_genre_df)
         logging.info(f"Merged -  df:{self.df.count()} records | movie_genre:{self.movie_genre_df.count()}")
 
+
+    # TODO: change code to match new definition
     def merge_with_trusted(self, path):
         trusted_df = self.spark.read.format("delta").load(path+"/movie")
         trusted_mov_gen_df = self.spark.read.format("delta").load(path+"/movie_genre")
