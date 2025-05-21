@@ -1,6 +1,6 @@
 import os, sys
 from abc import ABC, abstractmethod
-from lib.pt_utils import merge_elements, get_logger
+from lib.pt_utils import merge_elements, get_logger, gcs_path_exists
 
 from delta import DeltaTable
 from pyspark.sql import functions as F
@@ -14,8 +14,14 @@ TIMESTAMP_FORMAT = "yyyy-MM-dd'T'HH:mm:ssX"
 
 logging = get_logger()
 
-def basic_merge_with_trusted(self, path, key_cols):
-    if os.path.exists(path):
+def path_exists(bucket_path, table_path, is_gcs_enabled):
+    path = os.path.join(bucket_path, table_path)
+    return (not is_gcs_enabled and os.path.exists(path)) or (is_gcs_enabled and gcs_path_exists(bucket_path, table_path))
+
+
+def basic_merge_with_trusted(self, bucket_path, table_path, key_cols, is_gcs_enabled):
+    path = os.path.join(bucket_path, table_path)
+    if path_exists(bucket_path, table_path, is_gcs_enabled):
         delta_table = DeltaTable.forPath(self.spark, path)
         data_cols = [c for c in self.df.columns if c not in key_cols]
 
@@ -116,8 +122,9 @@ class NewsProcessor(Processer):
     def expand_source(self):
         self.df = self.df.withColumn("source", col("source.id"))
 
-    def merge_with_trusted(self, path, key_cols):
-        if os.path.exists(path):
+    def merge_with_trusted(self, bucket_path, table_path, key_cols, is_gcs_enabled):
+        path = os.path.join(bucket_path, table_path)
+        if path_exists(bucket_path, table_path, is_gcs_enabled):
             max_ts = (self.spark.read
                       .format("delta")
                       .load(path)

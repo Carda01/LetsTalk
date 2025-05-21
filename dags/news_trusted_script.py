@@ -4,6 +4,10 @@ from lib.IncrementalLoader import IncrementalLoader
 from lib.Processer import NewsProcessor
 
 is_gcs_enabled = os.getenv('IS_GCS_ENABLED')
+if is_gcs_enabled.lower() == 'true':
+    is_gcs_enabled = True
+else:
+    is_gcs_enabled = False
 
 spark, base_path = get_spark_and_path(is_gcs_enabled)
 
@@ -16,13 +20,14 @@ CATEGORIES = ['entertainment', 'sports', 'technology']
 for category in CATEGORIES:
     logging.info(f"Processing category {category}")
     table_subpath = f'delta_news/{category}'
-    loader = IncrementalLoader(spark, landing_path, table_subpath)
+    loader = IncrementalLoader(spark, landing_path, table_subpath, is_gcs_enabled)
     df = loader.get_new_data()
 
     processor = NewsProcessor(spark, df)
 
     logging.info("Begin processing")
-    logging.info(processor.df.head(3))
+    logging.info(processor.df.show(3))
+    logging.info(f"Processing {processor.df.count()} elements")
     processor.ensure_schema()
     processor.remove_clear_duplicates()
     processor.name_to_id()
@@ -35,7 +40,10 @@ for category in CATEGORIES:
     logging.info(processor.df.head(3))
 
     save_path = os.path.join(trusted_path, table_subpath)
-    processor.merge_with_trusted(save_path, ['url'])
+    processor.merge_with_trusted(trusted_path, table_subpath, ['url'], is_gcs_enabled)
+    loader.update_control_table()
 
-    logging.info("Data was merged")
+
+spark.stop()
+logging.info("Data was merged")
 
