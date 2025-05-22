@@ -23,7 +23,7 @@ for category in CATEGORIES:
     loader = IncrementalLoader(spark, landing_path, table_subpath, is_gcs_enabled)
     df = loader.get_new_data()
 
-    processor = NewsProcessor(spark, df)
+    processor = NewsProcessor(spark, df, is_gcs_enabled)
 
     logging.info(processor.df.show(3))
     logging.info(f"Processing {processor.df.count()} elements")
