@@ -17,7 +17,7 @@ logging = get_logger()
 def path_exists(bucket_path, table_path, is_gcs_enabled):
     path = os.path.join(bucket_path, table_path)
     does_path_exists = (not is_gcs_enabled and os.path.exists(path)) or (is_gcs_enabled and gcs_path_exists(bucket_path, table_path))
-    logging.info(f"does path {path} exists: {does_path_exists}", does_path_exists)
+    logging.info(f"does path {path} exists: {does_path_exists}")
     return does_path_exists
 
 
