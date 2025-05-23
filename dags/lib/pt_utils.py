@@ -4,6 +4,8 @@ from pyspark.sql import functions as F
 from functools import reduce
 from pyspark.sql.window import Window
 from pyspark.sql.functions import desc as spark_desc
+from google.cloud import storage
+from google.oauth2 import service_account
 
 def get_logger():
     logging.basicConfig(
@@ -14,6 +16,16 @@ def get_logger():
     return logging.getLogger(__name__)
 
 logger = get_logger()
+
+def gcs_path_exists(bucket_name, path):
+    credentials = service_account.Credentials.from_service_account_file(
+        '/gcs/gcs.json')
+    bucket_name = bucket_name[5:]
+
+    client = storage.Client(credentials=credentials)
+    bucket = client.bucket(bucket_name)
+    blobs = list(bucket.list_blobs(prefix=path, max_results=1))
+    return len(blobs) > 0
 
 def get_landing_path(path):
     return os.path.join(path, 'letstalk_landing_zone_bdma')
@@ -26,12 +38,10 @@ def get_explotation_path(path):
 
 def get_spark_and_path(is_gcs_enabled):
     logger.info(is_gcs_enabled)
-    if is_gcs_enabled == "True":
-        logger.info(is_gcs_enabled)
+    if is_gcs_enabled:
         spark = create_spark_gcs_session()
         delta_table_base_path = "gs://"
     else:
-        logger.info(is_gcs_enabled)
         spark = create_spark_local_session()
         delta_table_base_path = "/data"
 

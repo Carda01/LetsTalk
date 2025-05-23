@@ -3,9 +3,10 @@ from pyspark.sql import Row
 from datetime import datetime
 import os
 from delta import *
-from lib.pt_utils import get_logger
+from lib.pt_utils import get_logger, gcs_path_exists
 
 logging = get_logger()
+
 
 def get_control_table_schema():
     return StructType([
@@ -41,12 +42,12 @@ def is_cdf_enabled(delta_table):
 
 
 class IncrementalLoader:
-    def __init__(self, spark, absolute_base_path, table_name):
+    def __init__(self, spark, absolute_base_path, table_name, is_gcs_enabled = False):
         self.spark = spark
         self.base_path = absolute_base_path
         self.control_table_path = os.path.join(self.base_path, "control_table")
-        if not os.path.exists(self.control_table_path):
-            os.makedirs(self.control_table_path)
+        if not ((not is_gcs_enabled and os.path.exists(self.control_table_path)) or (is_gcs_enabled and gcs_path_exists(self.base_path, "control_table"))):
+            logging.info("Creating control table")
             create_control_table(self.control_table_path, spark)
         self.table_name = table_name
         self.landing_path = str(os.path.join(self.base_path, self.table_name))
