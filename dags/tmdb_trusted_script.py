@@ -1,0 +1,95 @@
+import os
+from lib.pt_utils import *
+from lib.IncrementalLoader import IncrementalLoader
+from pyspark.sql.utils import AnalysisException
+from delta import *
+from lib.Processer import *
+
+#is_gcs_enabled = os.getenv('IS_GCS_ENABLED')
+is_gcs_enabled= "False"
+if is_gcs_enabled.lower() == 'true':
+    is_gcs_enabled = True
+else:
+    is_gcs_enabled = False
+
+spark, base_path = get_spark_and_path(is_gcs_enabled)
+
+landing_path = '..\data\letstalk_landing_zone_bdma' #get_landing_path(base_path)
+trusted_path ='..\data\letstalk_trusted_zone_bdma'
+
+path= '..\data\letstalk_trusted_zone_bdma\control_table'
+
+try:
+    delta_table = DeltaTable.forPath(spark, path)
+    print("Delta table exists.")
+except AnalysisException:
+    print("Delta table does not exist. Starting initialization")
+    movies_subpath = r'delta_tmdb\database\movie'
+    genre_subpath  = r'delta_tmdb\database\genre'
+    movies_genre_subpath = r'delta_tmdb\database\movie_genre'
+
+    loader = IncrementalLoader(spark, landing_path, movies_subpath)
+    df = loader.get_new_data()
+    loader_genre = IncrementalLoader(spark, landing_path, genre_subpath)
+    df_genre= loader_genre.get_new_data()
+    loader_mov_gen = IncrementalLoader(spark, landing_path, movies_genre_subpath)
+    df_mov_gen= loader_mov_gen.get_new_data()
+
+    processor = TMDBProcessor(spark, df)
+
+    processor.ensure_schema()
+    processor.normalize_text(['overview'])
+    processor.remove_clear_duplicates()
+    processor.remove_hidden_duplicates(['film_id'], ['ingestion_time'], True)
+
+    processor.set_genre_df(df_genre)
+    processor.ensure_schema_genres()
+
+    processor.genre_df = processor.genre_df.withColumn("genre", lower(col("genre")))
+    processor.genre_df = processor.genre_df.withColumn("genre", regexp_replace(col("genre"), r"http\S+|www\.\S+", " "))
+    processor.genre_df = processor.genre_df.withColumn("genre", regexp_replace(col("genre"), r"[^a-zA-Z\s]", " "))
+    processor.genre_df.dropDuplicates()
+    window = Window.partitionBy(*["genre"]).orderBy(*["genre_id"])
+    processor.genre_df= (
+            processor.genre_df.withColumn("row_num", F.row_number().over(window)).filter(F.col("row_num") == 1).drop("row_num")
+            )
+
+    processor.set_movie_genre_df(df_mov_gen)
+    processor.ensure_schema_movie_genres()
+    processor.movie_genre_df.dropDuplicates()
+
+    processor.static_dump(trusted_path)
+"""
+if spark.catalog.tableExists("my_database.my_table")
+
+CATEGORIES = ['entertainment', 'sports', 'technology']
+for category in CATEGORIES:
+    logging.info(f"Processing category {category}")
+    table_subpath = f'delta_news/{category}'
+    loader = IncrementalLoader(spark, landing_path, table_subpath, is_gcs_enabled)
+    df = loader.get_new_data()
+
+    processor = NewsProcessor(spark, df, is_gcs_enabled)
+
+    logging.info(processor.df.show(3))
+    logging.info(f"Processing {processor.df.count()} elements")
+    processor.ensure_schema()
+    processor.remove_clear_duplicates()
+    processor.name_to_id()
+    processor.remove_hidden_duplicates(['url'], ['publishedAt'])
+    processor.normalize_text(['title', 'description', 'content'])
+    processor.expand_source()
+    processor.order_by('publishedAt', ascending=False)
+
+    logging.info("End processing")
+    logging.info(processor.df.show(3))
+
+    save_path = os.path.join(trusted_path, table_subpath)
+    processor.merge_with_trusted(trusted_path, table_subpath, ['url'])
+    loader.update_control_table()
+
+
+spark.stop()
+logging.info("Data was merged")
+
+"""

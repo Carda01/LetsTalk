@@ -3,7 +3,9 @@ from pyspark.sql import Row
 from datetime import datetime
 import os
 from delta import *
-from lib.pt_utils import get_logger, gcs_path_exists
+import sys
+sys.path.append("..") 
+from dags.lib.pt_utils import get_logger, gcs_path_exists
 
 logging = get_logger()
 

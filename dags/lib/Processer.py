@@ -1,6 +1,7 @@
 import os, sys
 from abc import ABC, abstractmethod
-from lib.pt_utils import merge_elements, get_logger, gcs_path_exists
+sys.path.append("..") 
+from dags.lib.pt_utils import merge_elements, get_logger, gcs_path_exists
 
 from delta import DeltaTable
 from pyspark.sql import functions as F
