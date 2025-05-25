@@ -1,7 +1,6 @@
 import os, sys
 from abc import ABC, abstractmethod
-sys.path.append("..") 
-from dags.lib.pt_utils import merge_elements, get_logger, gcs_path_exists
+from lib.pt_utils import merge_elements, get_logger, gcs_path_exists
 
 from delta import DeltaTable
 from pyspark.sql import functions as F
@@ -467,37 +466,36 @@ class TMDBProcessor(Processer):
         self.genre_df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(path+"/genre")
 
     def combine_dfs(self, processor):
-        logging.info(f"Main -  df:{self.df.count()} records | movie_genre:{self.movie_genre_df.count()}")
-        logging.info(f"Processor -  df:{processor.df.count()} records | movie_genre:{processor.movie_genre_df.count()}")
         self.df = self.df.unionByName(processor.df)
         self.movie_genre_df=self.movie_genre_df.unionByName(processor.movie_genre_df)
-        logging.info(f"Merged -  df:{self.df.count()} records | movie_genre:{self.movie_genre_df.count()}")
+        
+    def type_dump(self, path, name):
+        name=name.split('\\')[1]
+        df=self.df.select("film_id")
+        df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(path+r"/"+name)     
 
+    def merge_with_trusted(self, bucket_path):
+        basic_merge_with_trusted(self.df, self.spark, bucket_path, 'movie', ['film_id'], self.is_gcs_enabled)
+        path = os.path.join(bucket_path, "movie_genre")
+    
+        if path_exists(bucket_path, "movie_genre", self.is_gcs_enabled):
+            delta_table = DeltaTable.forPath(self.spark, path)
 
-    # TODO: change code to match new definition
-    def merge_with_trusted(self, path):
-        trusted_df = self.spark.read.format("delta").load(path+"/movie")
-        trusted_mov_gen_df = self.spark.read.format("delta").load(path+"/movie_genre")
+            # Step 1: Delete all existing rows that match any of our new film_ids
+            existing_ids = delta_table.toDF().select("film_id").distinct()
+            new_ids = self.movie_genre_df.select("film_id").distinct()
+            
+            ids_to_delete = existing_ids.join(new_ids, "film_id", "inner")
+        
+            if not ids_to_delete.rdd.isEmpty():
+                existing_data = delta_table.toDF()
+                data_to_keep = existing_data.join(ids_to_delete, "film_id", "left_anti")
+                
+                # Combine with new data and overwrite
+                combined = data_to_keep.union(self.movie_genre_df)
+                combined.write.format("delta").mode("overwrite").save(path)
 
-        self.df = self.df.unionByName(trusted_df)
-        self.movie_genre_df=self.movie_genre_df.unionByName(trusted_mov_gen_df)
-
-        self.remove_clear_duplicates()
-        self.remove_hidden_duplicates(['film_id'], ['ingestion_time'], True)
-
-        window_spec = Window.partitionBy("film_id")
-        # Compute the max timestamp per film_id
-        self.movie_genre_df = self.movie_genre_df.withColumn("max_ts", F.max("ingestion_time").over(window_spec))
-        self.movie_genre_df = self.movie_genre_df.filter(F.col("ingestion_time") == F.col("max_ts")).drop("max_ts")
-
-        self.df.write.format("delta").mode("overwrite").save(path+"/movie")
-        self.movie_genre_df.write.format("delta").mode("overwrite").save(path+"/movie_genre")
-
-
-
-
- 
-      
-
-
-
+        
+            else:
+                # Initial load if table doesn't exist
+                self.movie_genre_df.write.format("delta").mode("append").save(path)

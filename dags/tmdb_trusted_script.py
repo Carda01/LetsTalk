@@ -17,7 +17,7 @@ spark, base_path = get_spark_and_path(is_gcs_enabled)
 landing_path = '..\data\letstalk_landing_zone_bdma' #get_landing_path(base_path)
 trusted_path ='..\data\letstalk_trusted_zone_bdma'
 
-path= '..\data\letstalk_trusted_zone_bdma\control_table'
+path= '..\data\letstalk_trusted_zone_bdma\movie'
 
 try:
     delta_table = DeltaTable.forPath(spark, path)
@@ -28,14 +28,14 @@ except AnalysisException:
     genre_subpath  = r'delta_tmdb\database\genre'
     movies_genre_subpath = r'delta_tmdb\database\movie_genre'
 
-    loader = IncrementalLoader(spark, landing_path, movies_subpath)
+    loader = IncrementalLoader(spark, landing_path, movies_subpath, is_gcs_enabled)
     df = loader.get_new_data()
-    loader_genre = IncrementalLoader(spark, landing_path, genre_subpath)
+    loader_genre = IncrementalLoader(spark, landing_path, genre_subpath, is_gcs_enabled)
     df_genre= loader_genre.get_new_data()
-    loader_mov_gen = IncrementalLoader(spark, landing_path, movies_genre_subpath)
+    loader_mov_gen = IncrementalLoader(spark, landing_path, movies_genre_subpath, is_gcs_enabled)
     df_mov_gen= loader_mov_gen.get_new_data()
 
-    processor = TMDBProcessor(spark, df)
+    processor = TMDBProcessor(spark, df, is_gcs_enabled)
 
     processor.ensure_schema()
     processor.normalize_text(['overview'])
@@ -59,37 +59,32 @@ except AnalysisException:
     processor.movie_genre_df.dropDuplicates()
 
     processor.static_dump(trusted_path)
-"""
-if spark.catalog.tableExists("my_database.my_table")
 
-CATEGORIES = ['entertainment', 'sports', 'technology']
-for category in CATEGORIES:
-    logging.info(f"Processing category {category}")
-    table_subpath = f'delta_news/{category}'
-    loader = IncrementalLoader(spark, landing_path, table_subpath, is_gcs_enabled)
+#api dataset to trusted  - to be repeated
+table_subpaths = [r'delta_tmdb\now_playing',r'delta_tmdb\trending',r'delta_tmdb\upcoming']
+
+for i in range(len(table_subpaths)):
+    loader = IncrementalLoader(spark, landing_path, table_subpaths[i], is_gcs_enabled)
     df = loader.get_new_data()
+    if i==0:
+        processor= TMDBProcessor(spark, df, is_gcs_enabled)
 
-    processor = NewsProcessor(spark, df, is_gcs_enabled)
+        processor.ensure_schema()
+        processor.normalize_text(['overview'])
+        processor.ensure_schema_movie_genres()
+        processor.type_dump(trusted_path, table_subpaths[i])
+    
+    else:
+        processor1= TMDBProcessor(spark, df, is_gcs_enabled)
 
-    logging.info(processor.df.show(3))
-    logging.info(f"Processing {processor.df.count()} elements")
-    processor.ensure_schema()
-    processor.remove_clear_duplicates()
-    processor.name_to_id()
-    processor.remove_hidden_duplicates(['url'], ['publishedAt'])
-    processor.normalize_text(['title', 'description', 'content'])
-    processor.expand_source()
-    processor.order_by('publishedAt', ascending=False)
+        processor1.ensure_schema()
+        processor1.normalize_text(['overview'])
+        processor1.ensure_schema_movie_genres()
+        processor1.type_dump(trusted_path, table_subpaths[i])
+        processor.combine_dfs(processor1)
 
-    logging.info("End processing")
-    logging.info(processor.df.show(3))
-
-    save_path = os.path.join(trusted_path, table_subpath)
-    processor.merge_with_trusted(trusted_path, table_subpath, ['url'])
-    loader.update_control_table()
-
-
+processor.remove_clear_duplicates()
+processor.remove_hidden_duplicates(['film_id'], ['ingestion_time'], True)
+processor.merge_with_trusted(trusted_path)
 spark.stop()
 logging.info("Data was merged")
-
-"""

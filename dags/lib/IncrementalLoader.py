@@ -4,8 +4,7 @@ from datetime import datetime
 import os
 from delta import *
 import sys
-sys.path.append("..") 
-from dags.lib.pt_utils import get_logger, gcs_path_exists
+from lib.pt_utils import get_logger, gcs_path_exists
 
 logging = get_logger()
 
