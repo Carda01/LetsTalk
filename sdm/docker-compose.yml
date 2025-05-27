@@ -1,28 +1,18 @@
 version: '3.8'
 
 services:
+  # GraphDB Service
   graphdb:
     image: ontotext/graphdb:10.7.6
     container_name: graphdb
     ports:
-      - "7200:7200"
-      - "7300:7300"
+      - "7200:7200" # GraphDB Workbench and REST API
+      - "7300:7300" # GraphDB Triplestore Protocol (TSP)
     volumes:
+      # Persistent volume for GraphDB data
       - graphdb_data:/opt/graphdb/home/data
+      # Mount a local directory for importing files into GraphDB
       - ./docker-import:/opt/graphdb/import
     restart: unless-stopped
-
-  grafana:
-    image: grafana/grafana:latest
-    container_name: grafana
-    ports:
-      - "3000:3000"
-    environment:
-      - GF_INSTALL_PLUGINS=marcusolsson-json-datasource
-    volumes:
-      - grafana_data:/var/lib/grafana
-    restart: unless-stopped
-
-volumes:
-  graphdb_data:
-  grafana_data:
+    networks:
+      - my_app_network # Connect to a custom network for inter-service communication

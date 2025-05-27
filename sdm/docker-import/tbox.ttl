@@ -1,13 +1,33 @@
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
-<http://sdm_upc.org/ontology/Entertainment_News> rdfs:subClassOf <http://sdm_upc.org/ontology/News> .
+<http://sdm_upc.org/ontology/Cup> rdfs:subClassOf <http://sdm_upc.org/ontology/Competition> .
 
-<http://sdm_upc.org/ontology/Sports_News> rdfs:subClassOf <http://sdm_upc.org/ontology/News> .
+<http://sdm_upc.org/ontology/Entertainment_News> rdfs:subClassOf <http://sdm_upc.org/ontology/Entertainment>,
+        <http://sdm_upc.org/ontology/News> .
 
-<http://sdm_upc.org/ontology/Tech_News> rdfs:subClassOf <http://sdm_upc.org/ontology/News> .
+<http://sdm_upc.org/ontology/League> rdfs:subClassOf <http://sdm_upc.org/ontology/Competition> .
+
+<http://sdm_upc.org/ontology/Referees> rdfs:subClassOf <http://sdm_upc.org/ontology/Sports> .
+
+<http://sdm_upc.org/ontology/Sports_News> rdfs:subClassOf <http://sdm_upc.org/ontology/News>,
+        <http://sdm_upc.org/ontology/Sports> .
+
+<http://sdm_upc.org/ontology/Tech_News> rdfs:subClassOf <http://sdm_upc.org/ontology/News>,
+        <http://sdm_upc.org/ontology/Technology> .
 
 <http://sdm_upc.org/ontology/author_name> rdfs:domain <http://sdm_upc.org/ontology/Author> ;
+    rdfs:range xsd:string ;
+    rdfs:subPropertyOf foaf:name .
+
+<http://sdm_upc.org/ontology/competition_country> rdfs:domain <http://sdm_upc.org/ontology/Competition> ;
+    rdfs:range <http://sdm_upc.org/ontology/Country> .
+
+<http://sdm_upc.org/ontology/competition_name> rdfs:domain <http://sdm_upc.org/ontology/Competition> ;
+    rdfs:range xsd:string .
+
+<http://sdm_upc.org/ontology/country_name> rdfs:domain <http://sdm_upc.org/ontology/Country> ;
     rdfs:range xsd:string .
 
 <http://sdm_upc.org/ontology/genre_name> rdfs:domain <http://sdm_upc.org/ontology/Genre> ;
@@ -16,11 +36,50 @@
 <http://sdm_upc.org/ontology/has_genre> rdfs:domain <http://sdm_upc.org/ontology/Genre> ;
     rdfs:range <http://sdm_upc.org/ontology/Movie> .
 
+<http://sdm_upc.org/ontology/interested_in> rdfs:domain <http://sdm_upc.org/ontology/User> ;
+    rdfs:range <http://sdm_upc.org/ontology/Keyword> .
+
 <http://sdm_upc.org/ontology/keyword_text> rdfs:domain <http://sdm_upc.org/ontology/Keyword> ;
     rdfs:range xsd:string .
 
+<http://sdm_upc.org/ontology/likes_competition> rdfs:domain <http://sdm_upc.org/ontology/User> ;
+    rdfs:range <http://sdm_upc.org/ontology/Competition> .
+
+<http://sdm_upc.org/ontology/likes_genre> rdfs:domain <http://sdm_upc.org/ontology/User> ;
+    rdfs:range <http://sdm_upc.org/ontology/Genre> .
+
 <http://sdm_upc.org/ontology/likes_movie> rdfs:domain <http://sdm_upc.org/ontology/User> ;
     rdfs:range <http://sdm_upc.org/ontology/Movie> .
+
+<http://sdm_upc.org/ontology/likes_team> rdfs:domain <http://sdm_upc.org/ontology/User> ;
+    rdfs:range <http://sdm_upc.org/ontology/Team> .
+
+<http://sdm_upc.org/ontology/match_away_goals> rdfs:domain <http://sdm_upc.org/ontology/Match> ;
+    rdfs:range xsd:integer .
+
+<http://sdm_upc.org/ontology/match_away_team> rdfs:domain <http://sdm_upc.org/ontology/Match> ;
+    rdfs:range <http://sdm_upc.org/ontology/Team> .
+
+<http://sdm_upc.org/ontology/match_competition> rdfs:domain <http://sdm_upc.org/ontology/Match> ;
+    rdfs:range <http://sdm_upc.org/ontology/Competition> .
+
+<http://sdm_upc.org/ontology/match_date> rdfs:domain <http://sdm_upc.org/ontology/Match> ;
+    rdfs:range xsd:dateTime .
+
+<http://sdm_upc.org/ontology/match_home_goals> rdfs:domain <http://sdm_upc.org/ontology/Match> ;
+    rdfs:range xsd:integer .
+
+<http://sdm_upc.org/ontology/match_home_team> rdfs:domain <http://sdm_upc.org/ontology/Match> ;
+    rdfs:range <http://sdm_upc.org/ontology/Team> .
+
+<http://sdm_upc.org/ontology/match_referee> rdfs:domain <http://sdm_upc.org/ontology/Match> ;
+    rdfs:range <http://sdm_upc.org/ontology/Referee> .
+
+<http://sdm_upc.org/ontology/match_status> rdfs:domain <http://sdm_upc.org/ontology/Match> ;
+    rdfs:range xsd:string .
+
+<http://sdm_upc.org/ontology/match_venue> rdfs:domain <http://sdm_upc.org/ontology/Match> ;
+    rdfs:range <http://sdm_upc.org/ontology/Venue> .
 
 <http://sdm_upc.org/ontology/movie_adult> rdfs:domain <http://sdm_upc.org/ontology/Movie> ;
     rdfs:range xsd:boolean .
@@ -58,8 +117,15 @@
 <http://sdm_upc.org/ontology/news_title> rdfs:domain <http://sdm_upc.org/ontology/News> ;
     rdfs:range xsd:string .
 
+<http://sdm_upc.org/ontology/now_playing_movie> rdfs:domain <http://sdm_upc.org/ontology/Movie> ;
+    rdfs:range xsd:boolean .
+
 <http://sdm_upc.org/ontology/published_at> rdfs:domain <http://sdm_upc.org/ontology/News> ;
     rdfs:range <http://sdm_upc.org/ontology/Source> .
+
+<http://sdm_upc.org/ontology/referee_name> rdfs:domain <http://sdm_upc.org/ontology/Referee> ;
+    rdfs:range xsd:string ;
+    rdfs:subPropertyOf foaf:name .
 
 <http://sdm_upc.org/ontology/related_keyword> rdfs:domain <http://sdm_upc.org/ontology/News> ;
     rdfs:range <http://sdm_upc.org/ontology/Keyword> .
@@ -67,9 +133,46 @@
 <http://sdm_upc.org/ontology/source_name> rdfs:domain <http://sdm_upc.org/ontology/Source> ;
     rdfs:range xsd:string .
 
+<http://sdm_upc.org/ontology/team_name> rdfs:domain <http://sdm_upc.org/ontology/Team> ;
+    rdfs:range xsd:string .
+
+<http://sdm_upc.org/ontology/trending_movie> rdfs:domain <http://sdm_upc.org/ontology/Movie> ;
+    rdfs:range xsd:boolean .
+
+<http://sdm_upc.org/ontology/upcoming_movie> rdfs:domain <http://sdm_upc.org/ontology/Movie> ;
+    rdfs:range xsd:boolean .
+
+<http://sdm_upc.org/ontology/user_country> rdfs:domain <http://sdm_upc.org/ontology/User> ;
+    rdfs:range <http://sdm_upc.org/ontology/Country> .
+
 <http://sdm_upc.org/ontology/user_name> rdfs:domain <http://sdm_upc.org/ontology/User> ;
+    rdfs:range xsd:string ;
+    rdfs:subPropertyOf foaf:name .
+
+<http://sdm_upc.org/ontology/venue_city> rdfs:domain <http://sdm_upc.org/ontology/Venue> ;
+    rdfs:range xsd:string .
+
+<http://sdm_upc.org/ontology/venue_name> rdfs:domain <http://sdm_upc.org/ontology/Venue> ;
     rdfs:range xsd:string .
 
 <http://sdm_upc.org/ontology/written_by> rdfs:domain <http://sdm_upc.org/ontology/News> ;
     rdfs:range <http://sdm_upc.org/ontology/Author> .
+
+<http://sdm_upc.org/ontology/Author> rdfs:subClassOf foaf:Person .
+
+<http://sdm_upc.org/ontology/Referee> rdfs:subClassOf foaf:Person .
+
+<http://sdm_upc.org/ontology/Genre> rdfs:subClassOf <http://sdm_upc.org/ontology/Entertainment> .
+
+<http://sdm_upc.org/ontology/Venue> rdfs:subClassOf <http://sdm_upc.org/ontology/Sports> .
+
+<http://sdm_upc.org/ontology/Team> rdfs:subClassOf <http://sdm_upc.org/ontology/Sports> .
+
+<http://sdm_upc.org/ontology/Competition> rdfs:subClassOf <http://sdm_upc.org/ontology/Sports> .
+
+<http://sdm_upc.org/ontology/User> rdfs:subClassOf foaf:Person .
+
+<http://sdm_upc.org/ontology/Match> rdfs:subClassOf <http://sdm_upc.org/ontology/Sports> .
+
+<http://sdm_upc.org/ontology/Movie> rdfs:subClassOf <http://sdm_upc.org/ontology/Entertainment> .
 
