@@ -1,18 +1,21 @@
-version: '3.8'
+version: "3.8"  # Specify Docker Compose file format version
 
 services:
-  # GraphDB Service
   graphdb:
     image: ontotext/graphdb:10.7.6
     container_name: graphdb
     ports:
-      - "7200:7200" # GraphDB Workbench and REST API
-      - "7300:7300" # GraphDB Triplestore Protocol (TSP)
+      - "7200:7200"  # GraphDB Workbench and REST API
+      - "7300:7300"  # GraphDB Triplestore Protocol (TSP)
     volumes:
-      # Persistent volume for GraphDB data
-      - graphdb_data:/opt/graphdb/home/data
-      # Mount a local directory for importing files into GraphDB
-      - ./docker-import:/opt/graphdb/import
+      - graphdb_data:/opt/graphdb/home/data    # Persistent volume
+      - ./docker-import:/opt/graphdb/import    # Local import directory
     restart: unless-stopped
-    networks:
-      - my_app_network # Connect to a custom network for inter-service communication
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7200"]  # Optional: add health check
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  graphdb_data:
