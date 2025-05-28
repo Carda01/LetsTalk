@@ -42,6 +42,7 @@ interface Cluster {
   id: number;
   value: string | number;
 }
+
 interface ClusterResult {
   user_uri: string;
 }
@@ -53,8 +54,21 @@ interface ClusterResponse {
     user_clusters: ClusterResult[];
     embeddings_2d: [number, number][];
     cluster_labels: number[];
+    parameters?: {
+      eps: number;
+      min_samples: number;
+    };
   };
   message?: string;
+}
+
+interface ClusterPreference {
+  category: string;
+  name: string;
+}
+
+interface ClusterPreferences {
+  [clusterId: number]: ClusterPreference[];
 }
 
 const QueryGraphDBPage: React.FC = () => {
@@ -66,6 +80,11 @@ const QueryGraphDBPage: React.FC = () => {
   const [errorCluster, setErrorCluster] = useState<string | null>(null);
   const [clusterData, setClusterData] = useState<ClusterResponse | null>(null);
   const [clusterLoading, setClusterLoading] = useState(false);
+  const [clusterPreferences, setClusterPreferences] =
+    useState<ClusterPreferences>({});
+  const [preferencesLoading, setPreferencesLoading] = useState(false);
+  const [eps, setEps] = useState<number>(4.0);
+  const [minSamples, setMinSamples] = useState<number>(5);
 
   const queries: MetricQuery[] = [
     {
@@ -144,6 +163,149 @@ const QueryGraphDBPage: React.FC = () => {
       `,
     },
   ];
+
+  // Function to get cluster preferences query for a specific cluster
+  const getClusterPreferencesQuery = (
+    clusterId: number,
+    userUris: string[]
+  ) => {
+    const userUriValues = userUris.map((uri) => `<${uri}>`).join(" ");
+
+    return `
+      PREFIX sdm: <http://sdm_upc.org/ontology/>
+      PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+      SELECT DISTINCT ?category ?name WHERE {
+        {
+          SELECT ?category ?name WHERE {
+            VALUES ?a { ${userUriValues} }
+            ?a sdm:likes_genre ?g .
+            ?g sdm:genre_name ?name .
+            BIND("Genre" AS ?category)
+          }
+          GROUP BY ?category ?name
+          ORDER BY DESC(COUNT(?name))
+          LIMIT 1
+        }
+        UNION
+        {
+          SELECT ?category ?name WHERE {
+            VALUES ?a { ${userUriValues} }
+            ?a sdm:likes_competition ?l .
+            ?l sdm:competition_name ?name .
+            BIND("Competition" AS ?category)
+          }
+          GROUP BY ?category ?name
+          ORDER BY DESC(COUNT(?name))
+          LIMIT 1
+        }
+        UNION
+        {
+          SELECT ?category ?name WHERE {
+            VALUES ?a { ${userUriValues} }
+            ?a sdm:likes_movie ?m .
+            ?m sdm:movie_title ?name .
+            BIND("Movie" AS ?category)
+          }
+          GROUP BY ?category ?name
+          ORDER BY DESC(COUNT(?name))
+          LIMIT 1
+        }
+        UNION
+        {
+          SELECT ?category ?name WHERE {
+            VALUES ?a { ${userUriValues} }
+            ?a sdm:likes_team ?t .
+            ?t sdm:team_name ?name .
+            BIND("Team" AS ?category)
+          }
+          GROUP BY ?category ?name
+          ORDER BY DESC(COUNT(?name))
+          LIMIT 1
+        }
+        UNION
+        {
+          SELECT ?category ?name WHERE {
+            VALUES ?a { ${userUriValues} }
+            ?a sdm:interested_in ?k .
+            ?k sdm:keyword_text ?name .
+            BIND("Keyword" AS ?category)
+          }
+          GROUP BY ?category ?name
+          ORDER BY DESC(COUNT(?name))
+          LIMIT 1
+        }
+      }
+    `;
+  };
+
+  const runClusterPreferencesQueries = async () => {
+    if (
+      !clusterData?.data?.user_clusters ||
+      !clusterData?.data?.cluster_labels
+    ) {
+      return;
+    }
+
+    setPreferencesLoading(true);
+
+    try {
+      // Group users by cluster
+      const usersByCluster: Record<number, string[]> = {};
+
+      clusterData.data.user_clusters.forEach((user, index) => {
+        const clusterId = clusterData.data!.cluster_labels[index];
+        if (clusterId !== -1) {
+          // Exclude noise points
+          if (!usersByCluster[clusterId]) {
+            usersByCluster[clusterId] = [];
+          }
+          usersByCluster[clusterId].push(user.user_uri);
+        }
+      });
+
+      // Run preference queries for each cluster
+      const preferencesPromises = Object.entries(usersByCluster).map(
+        async ([clusterId, userUris]) => {
+          const clusterIdNum = parseInt(clusterId, 10);
+          const query = getClusterPreferencesQuery(clusterIdNum, userUris);
+
+          try {
+            const response = await axios.post<SparqlResponse>("/api/graphdb", {
+              query: query,
+            });
+
+            const preferences: ClusterPreference[] =
+              response.data.results.bindings.map((binding) => ({
+                category: binding.category?.value || "Unknown",
+                name: binding.name?.value || "Unknown",
+              }));
+
+            return { clusterId: clusterIdNum, preferences };
+          } catch (err) {
+            console.error(
+              `Error executing preferences query for cluster ${clusterId}:`,
+              err
+            );
+            return { clusterId: clusterIdNum, preferences: [] };
+          }
+        }
+      );
+
+      const results = await Promise.all(preferencesPromises);
+
+      const newPreferences: ClusterPreferences = {};
+      results.forEach(({ clusterId, preferences }) => {
+        newPreferences[clusterId] = preferences;
+      });
+
+      setClusterPreferences(newPreferences);
+    } catch (err) {
+      console.error("Error running cluster preferences queries:", err);
+    } finally {
+      setPreferencesLoading(false);
+    }
+  };
+
   const runclusterQuery = async () => {
     setLoadingCluster(true);
     setErrorCluster(null);
@@ -189,7 +351,7 @@ const QueryGraphDBPage: React.FC = () => {
       }
       setError(message);
     } finally {
-      setLoading(false);
+      setLoadingCluster(false);
     }
   };
 
@@ -252,7 +414,10 @@ const QueryGraphDBPage: React.FC = () => {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          eps: eps,
+          min_samples: minSamples,
+        }),
       });
 
       if (!response.ok) {
@@ -273,22 +438,34 @@ const QueryGraphDBPage: React.FC = () => {
     }
   };
 
+  const refreshAll = async () => {
+    await Promise.all([runAllQueries(), runClustering(), runclusterQuery()]);
+  };
+
   useEffect(() => {
     runAllQueries();
     runClustering();
     runclusterQuery();
   }, []);
 
+  // Run preferences queries when cluster data is available
+  useEffect(() => {
+    if (clusterData?.data?.user_clusters) {
+      runClusterPreferencesQueries();
+    }
+  }, [clusterData]);
+
   return (
     <div className="p-6">
       <div className="relative flex flex-row">
         <h1 className="text-2xl font-semibold mb-6">GraphDB Dashboard</h1>
         <div className="absolute right-0">
-          <RefreshButton onClick={runClustering} loading={loading} />
+          <RefreshButton
+            onClick={refreshAll}
+            loading={loading || clusterLoading || preferencesLoading}
+          />
         </div>
       </div>
-
-      {error && <p className="text-red-600 mb-4">Error: {error}</p>}
 
       <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
         {metrics.map((metric, idx) => (
@@ -296,10 +473,67 @@ const QueryGraphDBPage: React.FC = () => {
         ))}
       </div>
 
+      {/* DBSCAN Parameters */}
+      <div className="mb-6 p-4 bg-gray-50 rounded-lg mt-10">
+        <h2 className="text-md font-semibold mb-3">
+          DBSCAN Clustering Parameters
+        </h2>
+        <div className="flex gap-4 items-center">
+          <div className="flex flex-col">
+            <label
+              htmlFor="eps"
+              className="text-sm font-medium text-gray-700 mb-1"
+            >
+              EPS (ε)
+            </label>
+            <input
+              id="eps"
+              type="number"
+              step="0.1"
+              min="0.1"
+              value={eps}
+              onChange={(e) => setEps(parseFloat(e.target.value) || 4.0)}
+              className="w-24 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div className="flex flex-col">
+            <label
+              htmlFor="minSamples"
+              className="text-sm font-medium text-gray-700 mb-1"
+            >
+              Min Samples
+            </label>
+            <input
+              id="minSamples"
+              type="number"
+              min="1"
+              value={minSamples}
+              onChange={(e) => setMinSamples(parseInt(e.target.value) || 5)}
+              className="w-24 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <button
+            onClick={runClustering}
+            disabled={clusterLoading}
+            className="mt-6 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed"
+          >
+            {clusterLoading ? "Clustering..." : "Run Clustering"}
+          </button>
+        </div>
+        {clusterData?.data?.parameters && (
+          <div className="mt-2 text-sm text-gray-600">
+            Last run: EPS = {clusterData.data.parameters.eps}, Min Samples ={" "}
+            {clusterData.data.parameters.min_samples}
+          </div>
+        )}
+      </div>
+
+      {error && <p className="text-red-600 mb-4">Error: {error}</p>}
+
       <div className="flex flex-col lg:flex-row items-center mt-8 gap-6">
         {/* Cluster Plot */}
         <div className="flex-1 min-w-0">
-          <ClusterPlot />
+          <ClusterPlot clusterData={clusterData?.data} />
         </div>
 
         {/* Stats per cluster */}
@@ -311,28 +545,53 @@ const QueryGraphDBPage: React.FC = () => {
             >
               {Object.entries(clusterData.data.cluster_distribution)
                 .filter(([clusterId]) => parseInt(clusterId, 10) !== -1)
-                .map(([clusterId, count]) => (
-                  <div
-                    key={clusterId}
-                    className="snap-start h-full min-w-[300px] max-w-[300px]  p-6 rounded-xl shadow-xl flex-shrink-0"
-                  >
-                    <h3 className="font-bold text-xl text-blue-600 mt-2 mb-2">
-                      Cluster {clusterId}
-                    </h3>
-                    <p className="text-gray-700 text-md">
-                      <span className="font-semibold">Users:</span> {count}
-                    </p>
-                    {card.map(
-                      (item, index) =>
-                        item.id === parseInt(clusterId, 10) && (
-                          <p key={index} className="text-gray-700 text-md">
-                            <span className="font-semibold">Value:</span>{" "}
-                            {item.value}
+                .map(([clusterId, count]) => {
+                  const clusterIdNum = parseInt(clusterId, 10);
+                  const preferences = clusterPreferences[clusterIdNum] || [];
+
+                  return (
+                    <div
+                      key={clusterId}
+                      className="snap-start h-full min-w-[300px] max-w-[300px] p-6 rounded-xl shadow-xl flex-shrink-0"
+                    >
+                      <h3 className="font-bold text-xl text-blue-600 mt-2 mb-2">
+                        Cluster {clusterId}
+                      </h3>
+                      <p className="text-gray-700 text-md mb-2">
+                        <span className="font-semibold">Users:</span> {count}
+                      </p>
+
+                      {/* Cluster Preferences Section */}
+                      <div className="mt-4">
+                        <h4 className="font-semibold text-lg text-gray-800 mb-2">
+                          Top Preferences:
+                        </h4>
+                        {preferencesLoading ? (
+                          <p className="text-gray-500 text-sm italic">
+                            Loading preferences...
                           </p>
-                        )
-                    )}
-                  </div>
-                ))}
+                        ) : preferences.length > 0 ? (
+                          <div className="space-y-1">
+                            {preferences.map((pref, idx) => (
+                              <div key={idx} className="text-sm">
+                                <span className="font-medium text-blue-600">
+                                  {pref.category}:
+                                </span>{" "}
+                                <span className="text-gray-700">
+                                  {pref.name}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-gray-500 text-sm italic">
+                            No preferences found
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
             </div>
           </div>
         )}

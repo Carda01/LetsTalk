@@ -1,6 +1,8 @@
 # main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import Optional
 import pandas as pd
 import torch
 import numpy as np
@@ -23,7 +25,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def perform_clustering(model_path: str, triples_path: str):
+class ClusteringRequest(BaseModel):
+    eps: Optional[float] = 4.0
+    min_samples: Optional[int] = 5
+
+def perform_clustering(model_path: str, triples_path: str, eps: float = 4.0, min_samples: int = 5):
     # Load model and data
     print("Loading model...")
     pykeen_model = torch.load(f"{model_path}/trained_model.pkl",weights_only=False, map_location=torch.device('cpu'))
@@ -71,8 +77,9 @@ def perform_clustering(model_path: str, triples_path: str):
     pca = PCA(n_components=50)
     user_embeddings_reduced = pca.fit_transform(user_embeddings_scaled)
     
-    # Cluster
-    dbscan = DBSCAN(eps=4, min_samples=5)
+    # Cluster with configurable parameters
+    print(f"Running DBSCAN with eps={eps}, min_samples={min_samples}")
+    dbscan = DBSCAN(eps=eps, min_samples=min_samples)
     labels = dbscan.fit_predict(user_embeddings_reduced)
     
     # Prepare results
@@ -89,18 +96,27 @@ def perform_clustering(model_path: str, triples_path: str):
             for uri, cluster in zip(user_labels, labels)
         ],
         "embeddings_2d": user_embeddings_2d.tolist(),
-        "cluster_labels": [int(c) for c in labels.tolist()]
+        "cluster_labels": [int(c) for c in labels.tolist()],
+        "parameters": {
+            "eps": eps,
+            "min_samples": min_samples
+        }
     }
     return results
 
 @app.post("/cluster-users")
-async def cluster_users():
+async def cluster_users(request: ClusteringRequest = ClusteringRequest()):
     try:
         # Update these paths to your actual file locations
         model_path = "./data/kg"
         triples_path = "../data/triples.tsv"
         
-        results = perform_clustering(model_path, triples_path)
+        results = perform_clustering(
+            model_path, 
+            triples_path, 
+            eps=request.eps, 
+            min_samples=request.min_samples
+        )
         return {"status": "success", "data": results}
     except Exception as e:
         return {"status": "error", "message": str(e)}
