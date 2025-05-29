@@ -3,6 +3,7 @@ delta-spark==3.3.0
 pandas==2.2.3
 pyarrow==19.0.1
 requests
+pinecone
 newsapi-python
 kagglehub
 openpyxl
