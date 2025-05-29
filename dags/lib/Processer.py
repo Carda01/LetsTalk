@@ -20,6 +20,12 @@ def path_exists(bucket_path, table_path, is_gcs_enabled):
     logging.info(f"does path {path} exists: {does_path_exists}")
     return does_path_exists
 
+def create_trusted_table(df, path):
+    (df.write.format("delta")
+     .option("delta.enableChangeDataFeed", "true")
+     .save(path))
+    logging.info(f"Adding new {df.count()} records to table at path {path}")
+
 
 def basic_merge_with_trusted(df, spark, bucket_path, table_path, key_cols, is_gcs_enabled):
     path = os.path.join(bucket_path, table_path)
@@ -48,8 +54,7 @@ def basic_merge_with_trusted(df, spark, bucket_path, table_path, key_cols, is_gc
         logging.info(f"Added new {final_count - init_count} unique records to table at path {path}")
 
     else:
-        df.write.format("delta").mode("append").save(path)
-        logging.info(f"Adding new {df.count()} records to table at path {path}")
+        create_trusted_table(df, path)
 
 
 class Processer(ABC):
@@ -89,6 +94,7 @@ class Processer(ABC):
             self.df = self.df.withColumn(column, lower(col(column)))
             self.df = self.df.withColumn(column, regexp_replace(col(column), r"http\S+|www\.\S+", " "))
             self.df = self.df.withColumn(column, regexp_replace(col(column), r"[^a-zA-Z\s]", " "))
+            self.df = self.df.withColumn(column, when(col(column) == "", None))
 
 
     def order_by(self, column, ascending=True):
@@ -166,8 +172,7 @@ class NewsProcessor(Processer):
             logging.info(f"Adding new {df_new.count()} records")
 
         else:
-            self.df.write.format("delta").mode("append").save(path)
-            logging.info(f"Adding new {self.df.count()} records")
+            create_trusted_table(self.df, path)
 
 
 class SportsMatchesProcessor(Processer):
@@ -228,9 +233,7 @@ class SportsMatchesProcessor(Processer):
             logging.info(f"Adding new {df_new.count()} records")
 
         else:
-            self.df.write.format("delta").mode("append").save(path)
-            logging.info(f"Adding new {self.df.count()} records")
-
+            create_trusted_table(self.df, path)
 
 
     def expand(self):
@@ -353,7 +356,7 @@ class SportsLeagueProcessor(Processer):
                    .drop('league'))
 
         window_spec = Window.partitionBy('league_id').orderBy(length('league_id'))
-        leagues = self.df.select('league_id', 'country_code', 'league_name', 'league_type', 'league_logo').distinct()
+        leagues = self.df.select('league_id', 'country', 'league_name', 'league_type', 'league_logo').distinct()
 
         leagues = leagues.withColumn("row_num", row_number().over(window_spec))
         self.leagues = leagues.filter(col('row_num') == 1).drop("row_num")
