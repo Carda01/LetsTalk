@@ -94,7 +94,7 @@ class Processer(ABC):
             self.df = self.df.withColumn(column, lower(col(column)))
             self.df = self.df.withColumn(column, regexp_replace(col(column), r"http\S+|www\.\S+", " "))
             self.df = self.df.withColumn(column, regexp_replace(col(column), r"[^a-zA-Z\s]", " "))
-            self.df = self.df.withColumn(column, when(col(column) == "", None))
+            self.df = self.df.withColumn(column, when(col(column) == "", None).otherwise(col(column)))
 
 
     def order_by(self, column, ascending=True):
