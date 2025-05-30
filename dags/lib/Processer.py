@@ -93,7 +93,7 @@ class Processer(ABC):
         for column in columns:
             self.df = self.df.withColumn(column, lower(col(column)))
             self.df = self.df.withColumn(column, regexp_replace(col(column), r"http\S+|www\.\S+", " "))
-            self.df = self.df.withColumn(column, regexp_replace(col(column), r"[^a-zA-Z\s]", " "))
+            self.df = self.df.withColumn(column, regexp_replace(col(column), r"[^a-zA-Z0-9\s]", " "))
             self.df = self.df.withColumn(column, trim(col(column)))
             self.df = self.df.withColumn(column, when(col(column) == "", None).otherwise(col(column)))
 
@@ -411,7 +411,7 @@ class SportsLeagueProcessor(Processer):
 class TMDBProcessor(Processer):
     def __init__(self, spark, df, is_gcs_enabled = False):
         super().__init__(spark, df, is_gcs_enabled)
-        self.movie_genre_df=  None
+        self.movie_genre_df = None
         self.genre_df = None
 
     def set_genre_df(self,df):
@@ -464,42 +464,20 @@ class TMDBProcessor(Processer):
             self.movie_genre_df= self.df.select("film_id", "genre_ids", "ingestion_time").withColumn("genre_id", F.explode("genre_ids")).select("film_id", "genre_id","ingestion_time")
         self.df = self.df.select(cols)
 
+
     def static_dump(self, path):
-        self.df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(path+"/movie")
-        self.movie_genre_df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(path+"/movie_genre")
-        self.genre_df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(path+"/genre")
+        create_trusted_table(self.df, os.path.join(path, "movie"))
+        create_trusted_table(self.movie_genre_df, os.path.join(path, "movie_genre"))
+        create_trusted_table(self.genre_df, os.path.join(path, "genre"))
+
 
     def combine_dfs(self, processor):
         self.df = self.df.unionByName(processor.df)
         self.movie_genre_df=self.movie_genre_df.unionByName(processor.movie_genre_df)
-        
-    def type_dump(self, path, name):
-        name=name.split('\\')[1]
-        df=self.df.select("film_id")
-        df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(path+r"/"+name)     
+        self.movie_genre_df.dropDuplicates()
+        self.movie_genre_df = merge_elements(self.movie_genre_df, ['film_id', 'genre_id'], ['ingestion_time'], True)
+
 
     def merge_with_trusted(self, bucket_path):
-        basic_merge_with_trusted(self.df, self.spark, bucket_path, 'movie', ['film_id'], self.is_gcs_enabled)
-        path = os.path.join(bucket_path, "movie_genre")
-    
-        if path_exists(bucket_path, "movie_genre", self.is_gcs_enabled):
-            delta_table = DeltaTable.forPath(self.spark, path)
-
-            # Step 1: Delete all existing rows that match any of our new film_ids
-            existing_ids = delta_table.toDF().select("film_id").distinct()
-            new_ids = self.movie_genre_df.select("film_id").distinct()
-            
-            ids_to_delete = existing_ids.join(new_ids, "film_id", "inner")
-        
-            if not ids_to_delete.rdd.isEmpty():
-                existing_data = delta_table.toDF()
-                data_to_keep = existing_data.join(ids_to_delete, "film_id", "left_anti")
-                
-                # Combine with new data and overwrite
-                combined = data_to_keep.union(self.movie_genre_df)
-                combined.write.format("delta").mode("overwrite").save(path)
-
-        
-            else:
-                # Initial load if table doesn't exist
-                self.movie_genre_df.write.format("delta").mode("append").save(path)
+        basic_merge_with_trusted(self.df, self.spark, bucket_path, 'delta_tmdb/movie', ['film_id'], self.is_gcs_enabled)
+        basic_merge_with_trusted(self.movie_genre_df, self.spark, bucket_path, 'delta_tmdb/movie_genre', ['film_id', 'genre_id'], self.is_gcs_enabled)

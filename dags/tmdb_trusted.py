@@ -14,7 +14,7 @@ with DAG(
     dag_id="tmdb_to_trusted_dag",
     start_date=datetime(2025, 5, 1),
     description='A dag that moves data from the landing to the trusted zone applying some processing for the tmdb and entertainment data',
-    schedule_interval="@daily",
+    schedule_interval="@weekly",
     catchup=False
 ) as dag:
 

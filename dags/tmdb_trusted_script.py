@@ -5,8 +5,7 @@ from pyspark.sql.utils import AnalysisException
 from delta import *
 from lib.Processer import *
 
-#is_gcs_enabled = os.getenv('IS_GCS_ENABLED')
-is_gcs_enabled= "False"
+is_gcs_enabled = os.getenv('IS_GCS_ENABLED')
 if is_gcs_enabled.lower() == 'true':
     is_gcs_enabled = True
 else:
@@ -14,35 +13,25 @@ else:
 
 spark, base_path = get_spark_and_path(is_gcs_enabled)
 
-landing_path = '..\data\letstalk_landing_zone_bdma' #get_landing_path(base_path)
-trusted_path ='..\data\letstalk_trusted_zone_bdma'
+landing_path = get_landing_path(base_path)
+trusted_path = get_trusted_path(base_path)
 
-path= '..\data\letstalk_trusted_zone_bdma\movie'
+if not path_exists(trusted_path, "movie", is_gcs_enabled):
+    print("This is the first time TMDB is ingested. Starting initialization")
+    db_path = os.path.join(landing_path, 'delta_tmdb/database')
 
-try:
-    delta_table = DeltaTable.forPath(spark, path)
-    print("Delta table exists.")
-except AnalysisException:
-    print("Delta table does not exist. Starting initialization")
-    movies_subpath = r'delta_tmdb\database\movie'
-    genre_subpath  = r'delta_tmdb\database\genre'
-    movies_genre_subpath = r'delta_tmdb\database\movie_genre'
+    movies = spark.read.format("delta").load(os.path.join(db_path, 'movie'))
+    genres = spark.read.format("delta").load(os.path.join(db_path, 'genre'))
+    movie_genre = spark.read.format("delta").load(os.path.join(db_path, 'movie_genre'))
 
-    loader = IncrementalLoader(spark, landing_path, movies_subpath, is_gcs_enabled)
-    df = loader.get_new_data()
-    loader_genre = IncrementalLoader(spark, landing_path, genre_subpath, is_gcs_enabled)
-    df_genre= loader_genre.get_new_data()
-    loader_mov_gen = IncrementalLoader(spark, landing_path, movies_genre_subpath, is_gcs_enabled)
-    df_mov_gen= loader_mov_gen.get_new_data()
-
-    processor = TMDBProcessor(spark, df, is_gcs_enabled)
+    processor = TMDBProcessor(spark, movies, is_gcs_enabled)
 
     processor.ensure_schema()
     processor.normalize_text(['overview'])
     processor.remove_clear_duplicates()
     processor.remove_hidden_duplicates(['film_id'], ['ingestion_time'], True)
 
-    processor.set_genre_df(df_genre)
+    processor.set_genre_df(genres)
     processor.ensure_schema_genres()
 
     processor.genre_df = processor.genre_df.withColumn("genre", lower(col("genre")))
@@ -54,37 +43,51 @@ except AnalysisException:
             processor.genre_df.withColumn("row_num", F.row_number().over(window)).filter(F.col("row_num") == 1).drop("row_num")
             )
 
-    processor.set_movie_genre_df(df_mov_gen)
+    processor.set_movie_genre_df(movie_genre)
     processor.ensure_schema_movie_genres()
     processor.movie_genre_df.dropDuplicates()
 
-    processor.static_dump(trusted_path)
+    processor.static_dump(os.path.join(trusted_path, 'delta_tmdb'))
 
-#api dataset to trusted  - to be repeated
-table_subpaths = [r'delta_tmdb\now_playing',r'delta_tmdb\trending',r'delta_tmdb\upcoming']
+##### API #####
+CATEGORIES = ['now_playing', 'trending', 'upcoming']
+loaders = []
+dfs = []
 
-for i in range(len(table_subpaths)):
-    loader = IncrementalLoader(spark, landing_path, table_subpaths[i], is_gcs_enabled)
+processor = None
+for category in CATEGORIES:
+    logging.info(f"Loading {category}")
+    table_subpath = f'delta_tmdb/{category}'
+
+    loader = IncrementalLoader(spark, landing_path, table_subpath, is_gcs_enabled)
     df = loader.get_new_data()
-    if i==0:
-        processor= TMDBProcessor(spark, df, is_gcs_enabled)
+    if df.isEmpty():
+        logging.info(f"No data found for {category}")
+        continue
+    dfs.append(df)
+    loaders.append(loader)
 
+
+if dfs:
+    processors = []
+    for df in dfs:
+        processor = TMDBProcessor(spark, df, is_gcs_enabled)
+        processors.append(processor)
         processor.ensure_schema()
         processor.normalize_text(['overview'])
         processor.ensure_schema_movie_genres()
-        processor.type_dump(trusted_path, table_subpaths[i])
-    
-    else:
-        processor1= TMDBProcessor(spark, df, is_gcs_enabled)
 
-        processor1.ensure_schema()
-        processor1.normalize_text(['overview'])
-        processor1.ensure_schema_movie_genres()
-        processor1.type_dump(trusted_path, table_subpaths[i])
-        processor.combine_dfs(processor1)
+    primary_processor = processors[0]
+    for i in range(1, len(processors)):
+        primary_processor.combine_dfs(processors[i])
 
-processor.remove_clear_duplicates()
-processor.remove_hidden_duplicates(['film_id'], ['ingestion_time'], True)
-processor.merge_with_trusted(trusted_path)
+    primary_processor.remove_clear_duplicates()
+    primary_processor.remove_hidden_duplicates(['film_id'], ['ingestion_time'], True)
+    primary_processor.merge_with_trusted(trusted_path)
+
+
+for loader in loaders:
+    loader.update_control_table()
+
 spark.stop()
 logging.info("Data was merged")
