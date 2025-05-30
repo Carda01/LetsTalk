@@ -1,17 +1,40 @@
 from pinecone import Pinecone
 from pyspark.sql.functions import coalesce
 from pyspark.sql.functions import col, lit
+from functools import partial
 
 
 def prepare_data(data, key_col, date_col, text_to_embed_cols):
-    data_to_upsert = data.drop(date_col) \
+    data_to_upsert = data \
         .withColumnRenamed(key_col, "_id") \
         .withColumn("text_to_embed", coalesce(*text_to_embed_cols, lit(""))) \
-        .filter(col("text_to_embed") != "")
+        .filter(col("text_to_embed") != "") \
+        .drop(date_col)
 
     data_registry = data.select(key_col, date_col)
 
     return data_to_upsert, data_registry
+
+
+def _process_partition(partition, api_key, index_name, namespace, batch_size):
+    from pinecone import Pinecone
+    pc = Pinecone(api_key=api_key)
+    index = pc.Index(index_name)
+    buffer = []
+
+    for row in partition:
+        data = row.asDict()
+        entry = {k: v for k, v in data.items() if v is not None}
+
+        buffer.append(entry)
+
+        if len(buffer) >= batch_size:
+            index.upsert_records(namespace, buffer)
+            buffer.clear()
+
+    if buffer:
+        index.upsert_records(namespace, buffer)
+
 
 class PineconeManager:
 
@@ -23,25 +46,14 @@ class PineconeManager:
         self.pc = Pinecone(api_key=self.pinecone_api_key)
         self.index = self.pc.Index(self.index_name)
 
-
-    def process_partition(self, partition):
-        from pinecone import Pinecone
-        pc = Pinecone(api_key=self.pinecone_api_key)
-        index = pc.Index(self.index_name)
-        buffer = []
-
-        for row in partition:
-            data = row.asDict()
-            entry = {k: v for k, v in data.items() if v is not None}
-
-            buffer.append(entry)
-
-            if len(buffer) >= self.batch_size:
-                index.upsert_records(self.namespace, buffer)
-                buffer.clear()
-
-        if buffer:
-            index.upsert_records(self.namespace, buffer)
+    def get_pinecone_loader(self):
+        return partial(
+            _process_partition,
+            api_key=self.pinecone_api_key,
+            index_name=self.index_name,
+            namespace=self.namespace,
+            batch_size=self.batch_size,
+        )
 
 
     def reset_index(self):
