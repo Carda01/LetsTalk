@@ -101,13 +101,17 @@ class IncrementalLoader:
 
         if use_cdf:
             logging.info(f"Using CDF from version {last_processed_version}")
-            df = self.spark.read.format("delta") \
-                .option("readChangeData", "true") \
-                .option("startingVersion", str(last_processed_version)) \
-                .option("endingVersion", str(latest_version)) \
-                .load(self.landing_path) \
-                .filter("_change_type = 'insert'")
-            df = df.drop("_change_type", "_commit_version", "_commit_timestamp")
+            if last_processed_version != latest_version:
+                df = self.spark.read.format("delta") \
+                    .option("readChangeData", "true") \
+                    .option("startingVersion", str(last_processed_version)) \
+                    .option("endingVersion", str(latest_version)) \
+                    .load(self.landing_path) \
+                    .filter("_change_type = 'insert'")
+                df = df.drop("_change_type", "_commit_version", "_commit_timestamp")
+            else:
+                df = self.spark.range(0).toDF("id")
+
         else:
             logging.info("CDF not available — doing full load")
             if not cdf_enabled:

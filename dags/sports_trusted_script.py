@@ -19,21 +19,23 @@ logging.info("Processing leagues")
 table_subpath = f'delta_sports/leagues'
 loader = IncrementalLoader(spark, landing_path, table_subpath, is_gcs_enabled)
 df = loader.get_new_data()
+if df.isEmpty():
+    logging.info(f"No new data for {table_subpath}")
+else:
+    processor = SportsLeagueProcessor(spark, df, is_gcs_enabled)
 
-processor = SportsLeagueProcessor(spark, df, is_gcs_enabled)
+    logging.info(processor.df.show(3))
+    logging.info(f"Processing {processor.df.count()} elements")
+    processor.ensure_schema()
+    processor.remove_clear_duplicates()
+    processor.generate_leagues()
+    processor.generate_countries()
 
-logging.info(processor.df.show(3))
-logging.info(f"Processing {processor.df.count()} elements")
-processor.ensure_schema()
-processor.remove_clear_duplicates()
-processor.generate_leagues()
-processor.generate_countries()
+    logging.info("End processing")
+    logging.info(processor.df.show(3))
 
-logging.info("End processing")
-logging.info(processor.df.show(3))
-
-processor.merge_with_trusted(trusted_path, 'delta_sports')
-loader.update_control_table()
+    processor.merge_with_trusted(trusted_path, 'delta_sports')
+    loader.update_control_table()
 
 ######################## MATCHES ############################
 
@@ -42,24 +44,27 @@ table_subpath = f'delta_sports/matches'
 loader = IncrementalLoader(spark, landing_path, table_subpath, is_gcs_enabled)
 df = loader.get_new_data()
 
-processor = SportsMatchesProcessor(spark, df, is_gcs_enabled)
-logging.info(processor.df.show(3))
-logging.info(f"Processing {processor.df.count()} elements")
+if df.isEmpty():
+    logging.info(f"No new data for {table_subpath}")
+else:
+    processor = SportsMatchesProcessor(spark, df, is_gcs_enabled)
+    logging.info(processor.df.show(3))
+    logging.info(f"Processing {processor.df.count()} elements")
 
-processor.expand()
-processor.normalize_text(['referee', 'venue_city', 'venue_name', 'team_away_name', 'team_home_name', 'status_long'])
-processor.extract_teams()
-processor.extract_venues()
-processor.remove_useless_columns()
-processor.ensure_schema()
-processor.remove_clear_duplicates()
-processor.remove_hidden_duplicates(['fixture_id', 'status_long'])
+    processor.expand()
+    processor.normalize_text(['referee', 'venue_city', 'venue_name', 'team_away_name', 'team_home_name', 'status_long'])
+    processor.extract_teams()
+    processor.extract_venues()
+    processor.remove_useless_columns()
+    processor.ensure_schema()
+    processor.remove_clear_duplicates()
+    processor.remove_hidden_duplicates(['fixture_id', 'status_long'])
 
-logging.info("End processing")
-logging.info(processor.df.show(3))
+    logging.info("End processing")
+    logging.info(processor.df.show(3))
 
-processor.merge_with_trusted(trusted_path, 'delta_sports', ['fixture_id', 'status_long'])
-loader.update_control_table()
+    processor.merge_with_trusted(trusted_path, 'delta_sports', ['fixture_id', 'status_long'])
+    loader.update_control_table()
 
 spark.stop()
 logging.info("Data was merged")

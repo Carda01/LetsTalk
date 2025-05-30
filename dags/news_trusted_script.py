@@ -22,6 +22,9 @@ for category in CATEGORIES:
     table_subpath = f'delta_news/{category}'
     loader = IncrementalLoader(spark, landing_path, table_subpath, is_gcs_enabled)
     df = loader.get_new_data()
+    if df.isEmpty():
+        logging.info(f"No new data for {category}")
+        continue
 
     processor = NewsProcessor(spark, df, is_gcs_enabled)
 
