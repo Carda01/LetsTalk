@@ -6,7 +6,7 @@ from delta import DeltaTable
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
 from pyspark.sql.functions import col, when, lower, regexp_replace, struct, to_timestamp, max as spark_max, lit, \
-    coalesce, concat, length, row_number, explode, current_timestamp, from_unixtime
+    coalesce, concat, length, row_number, explode, current_timestamp, from_unixtime, trim
 from datetime import datetime
 from pyspark.sql.types import StructType, StructField, StringType, LongType, TimestampType
 
@@ -94,6 +94,7 @@ class Processer(ABC):
             self.df = self.df.withColumn(column, lower(col(column)))
             self.df = self.df.withColumn(column, regexp_replace(col(column), r"http\S+|www\.\S+", " "))
             self.df = self.df.withColumn(column, regexp_replace(col(column), r"[^a-zA-Z\s]", " "))
+            self.df = self.df.withColumn(column, trim(col(column)))
             self.df = self.df.withColumn(column, when(col(column) == "", None).otherwise(col(column)))
 
 
