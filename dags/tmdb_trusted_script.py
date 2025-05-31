@@ -27,7 +27,7 @@ if not path_exists(trusted_path, "movie", is_gcs_enabled):
     processor = TMDBProcessor(spark, movies, is_gcs_enabled)
 
     processor.ensure_schema()
-    processor.normalize_text(['overview'])
+    processor.normalize_text(['title', 'overview'])
     processor.remove_clear_duplicates()
     processor.remove_hidden_duplicates(['film_id'], ['ingestion_time'], True)
 
@@ -52,7 +52,7 @@ if not path_exists(trusted_path, "movie", is_gcs_enabled):
 ##### API #####
 CATEGORIES = ['now_playing', 'trending', 'upcoming']
 loaders = []
-dfs = []
+dfs = {}
 
 processor = None
 for category in CATEGORIES:
@@ -64,17 +64,18 @@ for category in CATEGORIES:
     if df.isEmpty():
         logging.info(f"No data found for {category}")
         continue
-    dfs.append(df)
+    dfs[category] = df
     loaders.append(loader)
 
 
 if dfs:
     processors = []
-    for df in dfs:
+    for name, df in dfs.items():
         processor = TMDBProcessor(spark, df, is_gcs_enabled)
         processors.append(processor)
         processor.ensure_schema()
-        processor.normalize_text(['overview'])
+        processor.normalize_text(['title', 'overview'])
+        processor.type_dump(os.path.join(trusted_path, 'delta_tmdb'), name)
         processor.ensure_schema_movie_genres()
 
     primary_processor = processors[0]

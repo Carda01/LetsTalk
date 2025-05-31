@@ -94,6 +94,7 @@ class Processer(ABC):
             self.df = self.df.withColumn(column, lower(col(column)))
             self.df = self.df.withColumn(column, regexp_replace(col(column), r"http\S+|www\.\S+", " "))
             self.df = self.df.withColumn(column, regexp_replace(col(column), r"[^a-zA-Z0-9\s]", " "))
+            self.df = self.df.withColumn(column, regexp_replace(column, "[^\\x00-\\x7F]", ""))
             self.df = self.df.withColumn(column, trim(col(column)))
             self.df = self.df.withColumn(column, when(col(column) == "", None).otherwise(col(column)))
 
@@ -477,6 +478,10 @@ class TMDBProcessor(Processer):
         self.movie_genre_df.dropDuplicates()
         self.movie_genre_df = merge_elements(self.movie_genre_df, ['film_id', 'genre_id'], ['ingestion_time'], True)
 
+
+    def type_dump(self, path, name):
+        df = self.df.select("film_id")
+        df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").save(os.path.join(path, name))
 
     def merge_with_trusted(self, bucket_path):
         basic_merge_with_trusted(self.df, self.spark, bucket_path, 'delta_tmdb/movie', ['film_id'], self.is_gcs_enabled)
