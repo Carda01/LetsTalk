@@ -11,7 +11,9 @@ def prepare_data(data, key_col, date_col, text_to_embed_cols):
         .filter(col("text_to_embed") != "") \
         .drop(date_col)
 
-    data_registry = data.select(key_col, date_col)
+    data_registry = None
+    if date_col in data.columns:
+        data_registry = data.select(key_col, date_col)
 
     return data_to_upsert, data_registry
 
@@ -22,6 +24,20 @@ def _process_partition(partition, api_key, index_name, namespace, batch_size):
     index = pc.Index(index_name)
     buffer = []
 
+    def safe_upsert(records):
+        try:
+            index.upsert_records(namespace, records)
+        except Exception as e:
+            print(f"Failed to upsert batch")
+            for rec in records:
+                try:
+                    index.upsert_records(namespace, [rec])
+                except Exception as single_e:
+                    print(f" -> Single record failed: record={rec}, error={single_e!r}")
+
+            return
+
+
     for row in partition:
         data = row.asDict()
         entry = {k: v for k, v in data.items() if v is not None}
@@ -29,11 +45,11 @@ def _process_partition(partition, api_key, index_name, namespace, batch_size):
         buffer.append(entry)
 
         if len(buffer) >= batch_size:
-            index.upsert_records(namespace, buffer)
+            safe_upsert(buffer)
             buffer.clear()
 
     if buffer:
-        index.upsert_records(namespace, buffer)
+        safe_upsert(buffer)
 
 
 class PineconeManager:
