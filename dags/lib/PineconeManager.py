@@ -4,12 +4,13 @@ from pyspark.sql.functions import col, lit
 from functools import partial
 
 
-def prepare_data(data, key_col, date_col, text_to_embed_cols):
+def prepare_data(data, key_col, date_col, text_to_embed_cols, source):
     data_to_upsert = data \
         .withColumnRenamed(key_col, "_id") \
         .withColumn("text_to_embed", coalesce(*text_to_embed_cols, lit(""))) \
         .filter(col("text_to_embed") != "") \
-        .drop(date_col)
+        .withColumn("source", lit(source)) \
+        .select('_id', 'text_to_embed', 'source')
 
     data_registry = None
     if date_col in data.columns:
