@@ -1,0 +1,19 @@
+name: sdm
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - nodejs  # includes npm
+  - scikit-learn
+  - pyspark
+  - pytorch 
+  - pip:
+      - requests
+      - fastapi
+      - uvicorn
+      - rdflib
+      - names
+      - delta-spark
+      - pykeen

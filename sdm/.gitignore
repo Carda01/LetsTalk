@@ -1,0 +1,5 @@
+.venv
+.ipynb_checkpoints
+*.ttl
+*.tsv
+/python-backend/data/kg
