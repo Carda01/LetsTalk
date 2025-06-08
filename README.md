@@ -1,4 +1,4 @@
-# Let's Talk P1
+# Let's Talk
 ## Description 
 Our project consists in a pipeline orchestrated with Airflow, that fetches data from different APIs, and uploads them into a Google Cloud bucket, using Delta Lake format.
 
